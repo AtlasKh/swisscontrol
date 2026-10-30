@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SwissControl PRO</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+/* ===================== СТИЛИ ===================== */
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+body { background: linear-gradient(180deg, #F4F7F9 0%, #EAEFF4 100%); color: #3A4750; min-height: 100vh; display: flex; justify-content: center; }
+#app { width: 100%; max-width: 460px; padding: 16px; padding-bottom: 40px; }
+
+.app-header { background: #fff; padding: 14px 16px; border-radius: 24px; box-shadow: 0 4px 20px rgba(160,180,200,.12); display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border: 1px solid #DCE3EB; gap: 10px; }
+.logo-text { font-size: 19px; font-weight: 800; color: #2B3A4A; }
+.logo-sub { font-size: 11px; color: #7B8E9E; font-weight: 500; }
+.user-badge { background: #EBF2F7; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; color: #4A607A; border: 1px solid #D1DFEC; cursor: pointer; max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.back-btn { background: #EBF2F7; border: 1px solid #D1DFEC; border-radius: 14px; width: 40px; height: 40px; font-size: 18px; color: #2B3A4A; cursor: pointer; flex-shrink: 0; }
+
+.ui-card { background: #fff; border-radius: 24px; padding: 18px; margin-bottom: 14px; border: 1px solid #DCE3EB; box-shadow: 0 8px 24px rgba(160,180,200,.08); }
+.card-tag { font-size: 11px; font-weight: 700; color: #E28743; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+.card-title { font-size: 20px; font-weight: 800; color: #2B3A4A; margin-bottom: 10px; }
+.card-title small { font-size: 14px; color: #8FA0AF; font-weight: 400; }
+.section-title { font-size: 14px; font-weight: 700; color: #2B3A4A; margin-bottom: 10px; }
+.muted { color: #8FA0AF; font-size: 13px; }
+.empty { text-align: center; color: #8FA0AF; font-size: 13px; padding: 14px 0; }
+
+.machine-card { cursor: pointer; }
+.machine-card:active { background: #F8FAFC; }
+.machine-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.num-badge { background: #2B3A4A; color: #fff; font-weight: 800; font-size: 14px; border-radius: 12px; padding: 6px 10px; }
+
+.params-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #F8FAFC; padding: 12px; border-radius: 16px; border: 1px solid #EBF0F5; margin-bottom: 12px; }
+.param-cell { font-size: 13px; color: #4A5660; }
+.param-lbl { color: #8FA0AF; font-weight: 500; display: block; font-size: 11px; }
+.param-val { font-weight: 700; color: #2B3A4A; }
+
+.progress-txt { display: flex; justify-content: space-between; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.bar-bg { width: 100%; height: 9px; background: #E4ECF2; border-radius: 5px; overflow: hidden; }
+.bar-fill { height: 100%; background: #E28743; border-radius: 5px; transition: width .3s ease; }
+
+.counter-box { display: flex; align-items: center; background: #F8FAFC; border: 1px solid #DCE3EB; border-radius: 14px; overflow: hidden; margin: 8px 0; }
+.counter-btn { background: #E4ECF2; border: none; color: #2B3A4A; font-size: 15px; font-weight: bold; width: 48px; height: 42px; cursor: pointer; }
+.counter-btn:active { background: #D1DFEC; }
+.counter-input { flex: 1; min-width: 0; border: none; background: transparent; text-align: center; font-size: 16px; font-weight: 700; color: #2B3A4A; outline: none; }
+
+.menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.menu-btn { background: #fff; border: 1px solid #DCE3EB; padding: 14px; border-radius: 18px; text-align: left; cursor: pointer; }
+.menu-btn:active { background: #F4F7F9; }
+.menu-ico { font-size: 22px; display: block; margin-bottom: 4px; }
+.menu-lbl { font-size: 13px; font-weight: 700; color: #3A4750; }
+.menu-sub { font-size: 11px; color: #8FA0AF; }
+
+.tool-list { display: flex; flex-direction: column; gap: 8px; }
+.tool-row { display: flex; justify-content: space-between; align-items: center; background: #F4F7F9; padding: 10px 12px; border-radius: 12px; border-left: 4px solid #4A90E2; font-size: 13px; gap: 8px; }
+.tool-row.warn { border-left-color: #E28743; }
+.tool-id { font-family: monospace; font-weight: 700; color: #2B3A4A; background: #E4ECF2; padding: 2px 6px; border-radius: 4px; margin-right: 4px; }
+.tool-name { font-weight: 600; color: #4A5660; }
+.tool-spec { font-size: 11px; color: #8FA0AF; font-weight: 500; margin-top: 2px; }
+.row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.mini-btn { background: #fff; border: 1px solid #DCE3EB; border-radius: 10px; padding: 6px 9px; font-size: 12px; font-weight: 700; color: #2B3A4A; cursor: pointer; }
+.mini-btn.danger { color: #C0392B; }
+
+.input-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.input-group label { font-size: 11px; font-weight: 700; color: #7B8E9E; text-transform: uppercase; }
+.input-group input, .input-group select, .input-group textarea { padding: 10px; border-radius: 12px; border: 1px solid #DCE3EB; font-size: 14px; font-weight: 600; background: #F8FAFC; color: #2B3A4A; outline: none; width: 100%; }
+.input-group textarea { font-family: monospace; font-weight: 500; resize: vertical; }
+.input-group input:focus, .input-group select:focus, .input-group textarea:focus { border-color: #4A90E2; background: #fff; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+.action-button { width: 100%; background: #2B3A4A; color: #fff; border: none; padding: 14px; border-radius: 18px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
+.action-button.secondary { background: #EBF2F7; color: #2B3A4A; border: 1px solid #D1DFEC; }
+.action-button.orange { background: #E28743; }
+.mt { margin-top: 12px; }
+
+/* календарь */
+.cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.cal-head b { font-size: 16px; color: #2B3A4A; text-transform: capitalize; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cal-dow { font-size: 10px; text-align: center; color: #8FA0AF; font-weight: 700; padding: 4px 0; }
+.cal-day { aspect-ratio: 1; border-radius: 10px; background: #F4F7F9; border: 1px solid transparent; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; cursor: pointer; }
+.cal-day.empty-cell { background: transparent; cursor: default; }
+.cal-day.has { background: #FDF1E7; border-color: #F2CDAE; }
+.cal-day.today { border-color: #4A90E2; }
+.cal-day small { font-size: 8px; color: #E28743; font-weight: 800; line-height: 1.15; white-space: nowrap; }
+.shift-row { display: flex; justify-content: space-between; align-items: center; background: #F4F7F9; border-radius: 12px; padding: 10px 12px; margin-bottom: 8px; font-size: 14px; gap: 8px; }
+.shift-row b { color: #E28743; }
+
+.draw-img { width: 100%; border-radius: 14px; border: 1px solid #DCE3EB; display: block; }
+.fullscreen { position: fixed; inset: 0; background: rgba(0,0,0,.92); z-index: 200; display: flex; align-items: center; justify-content: center; overflow: auto; }
+.fullscreen img { max-width: 100%; max-height: 100%; }
+
+.log-item { border-bottom: 1px solid #EBF0F5; padding: 10px 0; font-size: 13px; }
+.log-item:last-child { border-bottom: none; }
+.log-top { display: flex; justify-content: space-between; font-size: 11px; color: #8FA0AF; margin-bottom: 2px; }
+
+.result-box { background: #FDF1E7; border: 1px solid #F2CDAE; border-radius: 16px; padding: 14px; margin-top: 6px; }
+.result-big { font-size: 26px; font-weight: 800; color: #E28743; }
+.result-line { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
+
+.modal-bg { position: fixed; inset: 0; background: rgba(30,40,50,.5); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
+.modal { background: #fff; width: 100%; max-width: 460px; border-radius: 24px 24px 0 0; padding: 20px; max-height: 90vh; overflow-y: auto; }
+.modal h3 { font-size: 17px; color: #2B3A4A; margin-bottom: 14px; }
+.modal .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.modal .row.three { grid-template-columns: 1fr 1fr; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ===================== УТИЛИТЫ ===================== */
+const tg = window.Telegram && window.Telegram.WebApp;
+if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const uid = () => Math.random().toString(36).slice(2, 9);
+const num = v => { const n = parseFloat(String(v).replace(',', '.')); return isFinite(n) ? n : 0; };
+const pad = n => String(n).padStart(2, '0');
+const isoDate = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+const fmtDT = iso => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
+const fmtNum = (n, d = 2) => (Math.round(n * Math.pow(10, d)) / Math.pow(10, d)).toString().replace('.', ',');
+
+/* ===================== ХРАНИЛИЩЕ =====================
+   Сейчас данные лежат в localStorage (у каждого пользователя свои).
+   Для общей базы для всех сотрудников нужно заменить ТОЛЬКО этот блок
+   (load/save) на обращения к серверу. Остальной код менять не придётся. */
+const KEY = 'swisscontrol_v1';
+const Store = {
+  load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } },
+  save(data) {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); }
+    catch (e) { alert('Не хватает памяти для сохранения. Удалите чертёж или уменьшите изображения.'); }
+  }
+};
+
+function newMachine(num_, model) {
+  return {
+    id: uid(), num: num_, model: model || '',
+    part: { name: '', len: 0, qty: 0 },
+    bar: { dia: 0 },
+    collets: { main: '', back: '' },
+    cutW: 3, 
+    barCfg: { face: 0.5, barLen: 3, remnant: 300 },
+    tools: [], changes: [],
+    program: { name: '', notes: '', code: '' },
+    drawing: null,
+    shifts: {}
+  };
+}
+
+function seedData() {
+  const m = newMachine('01', 'Citizen L20');
+  m.part = { name: 'Вал-шестерня', len: 23.8, qty: 1500 };
+  m.bar.dia = 18;
+  m.collets = { main: '18М', back: '14B' };
+  m.tools = [
+    { id: uid(), code: 'T01', name: 'Проходной резец', spec: 'Пластина ромб CCGT' },
+    { id: uid(), code: 'T02', name: 'Отрезной резец', spec: 'Ширина 3.0 мм' },
+    { id: uid(), code: 'T03', name: 'Сверло монолит', spec: 'Ø 5.5 мм (Main)' }
+  ];
+  return { machines: [m] };
+}
+
+let db = Store.load() || seedData();
+const save = () => Store.save(db);
+
+/* ===================== ПОЛЬЗОВАТЕЛЬ ===================== */
+function getUser() {
+  const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user;
+  if (u) return [u.first_name, u.last_name].filter(Boolean).join(' ');
+  return localStorage.getItem('sc_user') || '';
+}
+let user = getUser();
+
+/* ===================== РОЛИ =====================
+   admin    — наладчик/администратор: может всё.
+   operator — оператор: видит всё, но может только вносить свою выработку
+              и отмечать замену инструмента.
+   ВАЖНО: пока нет сервера, защита работает на уровне интерфейса (кнопки
+   скрыты и заблокированы). Для настоящей защиты права нужно проверять на
+   сервере по подписи Telegram (initData). */
+const ADMIN_IDS = [];      // Telegram ID наладчиков, например [123456789, 987654321]
+const ADMIN_PIN = '1234';  // PIN для входа администратором — ОБЯЗАТЕЛЬНО смените
+const tgId = () => { const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user; return u ? u.id : null; };
+const isIdAdmin = () => tgId() !== null && ADMIN_IDS.includes(tgId());
+const isAdmin = () => isIdAdmin() || localStorage.getItem('sc_admin') === '1';
+const ADMIN_ONLY = ['addMachine', 'editMachine', 'toolAdd', 'toolEdit', 'progEdit', 'drawPick', 'drawDel'];
+
+/* ===================== СОСТОЯНИЕ UI ===================== */
+const ui = { view: 'list', mid: null, month: new Date(), day: null };
+const curM = () => db.machines.find(m => m.id === ui.mid);
+const doneOf = m => Object.values(m.shifts).reduce((s, arr) => s + arr.reduce((a, e) => a + num(e.count), 0), 0);
+/* Смены: день 08:00–20:00, ночь 20:00–08:00.
+   Ночная смена записывается на дату, когда она НАЧАЛАСЬ
+   (в 03:00 30-го числа идёт ночь от 29-го). */
+const SHIFT_NAMES = { day: '☀️ День', night: '🌙 Ночь' };
+const DAY_START = 8, NIGHT_START = 20;
+function currentShift() {
+  const now = new Date(), h = now.getHours();
+  const d = new Date(now);
+  let type = 'day';
+  if (h >= NIGHT_START) type = 'night';
+  else if (h < DAY_START) { type = 'night'; d.setDate(d.getDate() - 1); }
+  return { date: isoDate(d), type };
+}
+const shiftOf = e => e.shift === 'night' ? 'night' : 'day'; // старые записи = день
+const todayEntry = (m, create) => {
+  const cs = currentShift();
+  const arr = m.shifts[cs.date] || (create ? (m.shifts[cs.date] = []) : []);
+  let e = arr.find(x => x.who === user && shiftOf(x) === cs.type);
+  if (!e && create) { e = { id: uid(), who: user, shift: cs.type, count: 0 }; arr.push(e); }
+  return e;
+};
+
+/* ===================== МОДАЛЬНОЕ ОКНО ===================== */
+function modal(title, fields, onSave, onDelete) {
+  const w = document.createElement('div');
+  w.className = 'modal-bg';
+  const fieldHtml = f => {
+    const v = f.value == null ? '' : f.value;
+    let input;
+    if (f.type === 'select') input = `<select name="${f.k}">${f.options.map(o => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    else if (f.type === 'textarea') input = `<textarea name="${f.k}" rows="${f.rows || 4}">${esc(v)}</textarea>`;
+    else input = `<input name="${f.k}" type="text" ${f.type === 'number' ? 'inputmode="decimal"' : ''} value="${esc(v)}" placeholder="${esc(f.ph || '')}">`;
+    return `<div class="input-group"><label>${esc(f.label)}</label>${input}</div>`;
+  };
+  w.innerHTML = `<div class="modal"><h3>${esc(title)}</h3>${fields.map(fieldHtml).join('')}
+    <div class="row"><button class="action-button secondary" data-m="x">Отмена</button><button class="action-button" data-m="ok">Сохранить</button></div>
+    ${onDelete ? '<button class="action-button secondary mt" style="color:#C0392B" data-m="del">Удалить</button>' : ''}</div>`;
+  w.addEventListener('click', e => {
+    const b = e.target.closest('[data-m]');
+    if (e.target === w || (b && b.dataset.m === 'x')) return w.remove();
+    if (!b) return;
+    if (b.dataset.m === 'del') { if (confirm('Удалить?')) { onDelete(); w.remove(); } return; }
+    if (b.dataset.m === 'ok') {
+      const out = {};
+      fields.forEach(f => { out[f.k] = w.querySelector(`[name="${f.k}"]`).value.trim(); });
+      if (onSave(out) !== false) w.remove();
+    }
+  });
+  document.body.appendChild(w);
+  const first = w.querySelector('input,textarea');
+  if (first) setTimeout(() => first.focus(), 50);
+}
+
+/* ===================== СХЕМА СТАНКА (SVG) ===================== */
+function schematic(m) {
+  const tools = m.tools.slice(0, 6);
+  const toolSvg = tools.map((t, i) => {
+    const x = 150 + i * 22;
+    return `<rect x="${x}" y="22" width="14" height="30" rx="3" fill="#4A90E2"/><text x="${x + 7}" y="16" font-size="8" text-anchor="middle" fill="#4A607A" font-weight="700">${esc(t.code || '')}</text>`;
+  }).join('');
+  return `<svg viewBox="0 0 400 150" width="100%" style="display:block">
+    <rect x="1" y="1" width="398" height="148" rx="14" fill="#F8FAFC" stroke="#DCE3EB"/>
+    <rect x="14" y="52" width="70" height="56" rx="8" fill="#2B3A4A"/>
+    <text x="49" y="76" font-size="10" fill="#fff" text-anchor="middle" font-weight="700">MAIN</text>
+    <text x="49" y="92" font-size="9" fill="#C9D6E2" text-anchor="middle">${esc(m.collets.main || '—')}</text>
+    <rect x="84" y="72" width="40" height="16" fill="#8FA0AF"/>
+    <rect x="124" y="64" width="18" height="32" rx="4" fill="#607282"/>
+    <text x="133" y="115" font-size="8" fill="#7B8E9E" text-anchor="middle">втулка</text>
+    <rect x="142" y="76" width="128" height="8" rx="3" fill="#E28743"/>
+    ${toolSvg}
+    <rect x="316" y="52" width="70" height="56" rx="8" fill="#4A607A"/>
+    <text x="351" y="76" font-size="10" fill="#fff" text-anchor="middle" font-weight="700">BACK</text>
+    <text x="351" y="92" font-size="9" fill="#C9D6E2" text-anchor="middle">${esc(m.collets.back || '—')}</text>
+    <rect x="270" y="76" width="46" height="8" rx="3" fill="#E28743" opacity=".55"/>
+    <text x="14" y="140" font-size="10" fill="#7B8E9E">Ø${esc(m.bar.dia || '—')} мм · ${esc(m.model || 'станок')}</text>
+  </svg>`;
+}
+
+/* ===================== ЭКРАНЫ ===================== */
+function header(title, sub, back) {
+  return `<div class="app-header">
+    ${back ? '<button class="back-btn" data-act="back">←</button>' : ''}
+    <div style="flex:1;min-width:0"><div class="logo-text">${esc(title)}</div><div class="logo-sub">${esc(sub)}</div></div>
+    <div class="user-badge" data-act="setName">${isAdmin() ? '🔑' : '👷'} ${esc(user || 'Ваше имя')}</div>
+  </div>`;
+}
+
+function viewList() {
+  const cards = db.machines.map(m => {
+    const done = doneOf(m), pct = m.part.qty ? Math.min(100, done / m.part.qty * 100) : 0;
+    return `<div class="ui-card machine-card" data-act="open" data-id="${m.id}">
+      <div class="machine-top">
+        <div><div class="card-tag">Станок №${esc(m.num)}</div><div class="card-title" style="margin-bottom:4px">${esc(m.model || 'Без модели')}</div></div>
+        <div class="num-badge">№${esc(m.num)}</div>
+      </div>
+      <div class="muted">${m.part.name ? '📦 ' + esc(m.part.name) : 'Деталь не задана'}${m.bar.dia ? ' · Ø' + esc(m.bar.dia) : ''}</div>
+      <div class="progress-txt mt"><span>Выработка</span><span>${fmtNum(done, 0)} / ${fmtNum(m.part.qty, 0)} шт</span></div>
+      <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+    </div>`;
+  }).join('');
+  return header('SwissControl', 'Мониторинг автоматов ЧПУ', false) + (cards || '<div class="empty">Станков пока нет</div>') +
+    (isAdmin() ? '<button class="action-button" data-act="addMachine">+ Добавить станок</button>' : '');
+}
+
+function viewMachine() {
+  const m = curM();
+  const done = doneOf(m), qty = num(m.part.qty), pct = qty ? Math.min(100, done / qty * 100) : 0;
+  const mine = todayEntry(m, false);
+  const mineCnt = mine ? num(mine.count) : 0;
+  const toolsCnt = m.tools.length;
+  const cs = currentShift();
+  const csLabel = SHIFT_NAMES[cs.type] + ' · ' + cs.date.split('-').reverse().slice(0, 2).join('.');
+  return header('Станок №' + m.num, m.model, true) +
+  `<div class="ui-card">${schematic(m)}
+    <div class="params-grid mt">
+      <div class="param-cell"><span class="param-lbl">📦 Деталь</span><span class="param-val">${esc(m.part.name || '—')}</span></div>
+      <div class="param-cell"><span class="param-lbl">📏 Пруток</span><span class="param-val">${m.bar.dia ? 'Ø' + esc(m.bar.dia) + ' мм' : '—'}</span></div>
+      <div class="param-cell"><span class="param-lbl">🌀 Цанга Main</span><span class="param-val">${esc(m.collets.main || '—')}</span></div>
+      <div class="param-cell"><span class="param-lbl">🌀 Цанга Back</span><span class="param-val">${esc(m.collets.back || '—')}</span></div>
+    </div>
+    <div class="progress-txt"><span>Выработка (всего)</span><span><span style="color:#E28743;font-weight:800">${fmtNum(done, 0)}</span> / ${fmtNum(qty, 0)} шт</span></div>
+    <div class="bar-bg"><div class="bar-fill" style="width:${pct}%"></div></div>
+    <div class="muted mt">Моя выработка · ${csLabel}${user ? ' (' + esc(user) + ')' : ''}:</div>
+    <div class="counter-box">
+      <button class="counter-btn" data-act="adj" data-n="-50">-50</button>
+      <button class="counter-btn" data-act="adj" data-n="-1">-1</button>
+      <input class="counter-input" id="mycount" type="number" inputmode="numeric" value="${mineCnt}">
+      <button class="counter-btn" data-act="adj" data-n="1">+1</button>
+      <button class="counter-btn" data-act="adj" data-n="50">+50</button>
+    </div>
+    ${isAdmin() ? '<button class="action-button secondary mt" data-act="editMachine">⚙️ Наладка станка</button>' : ''}
+  </div>
+  <div class="menu-grid">
+    <div class="menu-btn" data-act="go" data-v="tools"><span class="menu-ico">🔧</span><div class="menu-lbl">Инструменты</div><div class="menu-sub">${toolsCnt} шт</div></div>
+    <div class="menu-btn" data-act="go" data-v="changes"><span class="menu-ico">🔄</span><div class="menu-lbl">Замены</div><div class="menu-sub">${m.changes.length} записей</div></div>
+    <div class="menu-btn" data-act="go" data-v="program"><span class="menu-ico">💾</span><div class="menu-lbl">Программа</div><div class="menu-sub">${esc(m.program.name || 'не задана')}</div></div>
+    <div class="menu-btn" data-act="go" data-v="drawing"><span class="menu-ico">📐</span><div class="menu-lbl">Чертёж</div><div class="menu-sub">${m.drawing ? 'загружен' : 'нет'}</div></div>
+    <div class="menu-btn" data-act="go" data-v="calendar"><span class="menu-ico">📅</span><div class="menu-lbl">Календарь смен</div><div class="menu-sub">кто и сколько</div></div>
+    <div class="menu-btn" data-act="go" data-v="bar"><span class="menu-ico">📏</span><div class="menu-lbl">Расчёт прутка</div><div class="menu-sub">метры на партию</div></div>
+  </div>`;
+}
+
+function viewTools() {
+  const m = curM();
+  const rows = m.tools.map(t => `<div class="tool-row">
+    <div><span class="tool-id">${esc(t.code)}</span><span class="tool-name">${esc(t.name)}</span><div class="tool-spec">${esc(t.spec)}</div></div>
+    <div class="row-actions"><button class="mini-btn" data-act="toolChange" data-id="${t.id}">Замена</button>${isAdmin() ? `<button class="mini-btn" data-act="toolEdit" data-id="${t.id}">✎</button>` : ''}</div>
+  </div>`).join('');
+  return header('Инструменты', 'Станок №' + m.num, true) +
+    `<div class="ui-card"><div class="tool-list">${rows || '<div class="empty">Инструментов нет</div>'}</div>
+    ${isAdmin() ? '<button class="action-button mt" data-act="toolAdd">+ Добавить инструмент</button>' : '<div class="muted mt">Заменили инструмент? Нажмите «Замена» рядом с ним и укажите причину.</div>'}</div>`;
+}
+
+function viewChanges() {
+  const m = curM();
+  const items = m.changes.slice().reverse().map(c => `<div class="log-item">
+    <div class="log-top"><span>${fmtDT(c.ts)}</span><span>👤 ${esc(c.who || '—')}</span></div>
+    <div><span class="tool-id">${esc(c.code)}</span><b>${esc(c.tool)}</b> — ${esc(c.reason)}</div>
+    ${c.spec ? `<div class="muted">Установлено: ${esc(c.spec)}</div>` : ''}
+    ${c.comment ? `<div class="muted">${esc(c.comment)}</div>` : ''}
+  </div>`).join('');
+  return header('Замены инструмента', 'Станок №' + m.num, true) +
+    `<div class="ui-card">${items || '<div class="empty">Замен пока не было. Нажмите «Замена» в списке инструментов.</div>'}</div>`;
+}
+
+function viewProgram() {
+  const m = curM(), p = m.program;
+  return header('Программа', 'Станок №' + m.num, true) +
+    `<div class="ui-card">
+      <div class="card-tag">Текущая программа (Fanuc)</div>
+      <div class="card-title">${esc(p.name || 'Не задана')}</div>
+      ${p.notes ? `<div class="muted" style="margin-bottom:10px;white-space:pre-wrap">${esc(p.notes)}</div>` : ''}
+      ${p.code ? `<pre style="background:#F8FAFC;border:1px solid #EBF0F5;border-radius:12px;padding:10px;font-size:12px;overflow-x:auto;white-space:pre-wrap">${esc(p.code)}</pre>` : ''}
+      ${isAdmin() ? '<button class="action-button mt" data-act="progEdit">Редактировать</button>' : ''}
+    </div>`;
+}
+
+function viewDrawing() {
+  const m = curM();
+  return header('Чертёж детали', 'Станок №' + m.num, true) +
+    `<div class="ui-card">
+      ${m.drawing ? `<img class="draw-img" src="${m.drawing}" data-act="drawView">` : '<div class="empty">Чертёж не загружен</div>'}
+      <input type="file" id="drawfile" accept="image/*" style="display:none">
+      ${isAdmin() ? `<button class="action-button mt" data-act="drawPick">${m.drawing ? 'Заменить чертёж' : 'Загрузить чертёж (фото)'}</button>
+      ${m.drawing ? '<button class="action-button secondary mt" data-act="drawDel">Удалить чертёж</button>' : ''}` : ''}
+      <div class="muted mt">Нажмите на чертёж, чтобы открыть на весь экран.</div>
+    </div>`;
+}
+
+function viewCalendar() {
+  const m = curM();
+  const y = ui.month.getFullYear(), mo = ui.month.getMonth();
+  const first = new Date(y, mo, 1), days = new Date(y, mo + 1, 0).getDate();
+  const startDow = (first.getDay() + 6) % 7;
+  const todayIso = isoDate(new Date());
+  let cells = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => `<div class="cal-dow">${d}</div>`).join('');
+  for (let i = 0; i < startDow; i++) cells += '<div class="cal-day empty-cell"></div>';
+  let monthTotal = 0; const byPerson = {};
+  for (let d = 1; d <= days; d++) {
+    const iso = y + '-' + pad(mo + 1) + '-' + pad(d);
+    const arr = m.shifts[iso] || [];
+    let sd = 0, sn = 0;
+    arr.forEach(e => {
+      const c = num(e.count), k = e.who || '—';
+      const p = byPerson[k] || (byPerson[k] = { d: 0, n: 0 });
+      if (shiftOf(e) === 'night') { sn += c; p.n += c; } else { sd += c; p.d += c; }
+    });
+    monthTotal += sd + sn;
+    const hasD = arr.some(e => shiftOf(e) === 'day'), hasN = arr.some(e => shiftOf(e) === 'night');
+    const marks = (hasD ? `<small>☀️${sd}</small>` : '') + (hasN ? `<small>🌙${sn}</small>` : '');
+    cells += `<div class="cal-day ${arr.length ? 'has' : ''} ${iso === todayIso ? 'today' : ''}" data-act="calDay" data-d="${iso}">${d}${marks}</div>`;
+  }
+  const monthName = ui.month.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+  const persons = Object.entries(byPerson).sort((a, b) => (b[1].d + b[1].n) - (a[1].d + a[1].n)).map(([w, c]) =>
+    `<div class="shift-row"><span>👤 ${esc(w)}<div class="muted">☀️ ${fmtNum(c.d, 0)} · 🌙 ${fmtNum(c.n, 0)}</div></span><b>${fmtNum(c.d + c.n, 0)} шт</b></div>`).join('');
+  return header('Календарь смен', 'Станок №' + m.num, true) +
+    `<div class="ui-card">
+      <div class="cal-head"><button class="mini-btn" data-act="calPrev">←</button><b>${esc(monthName)}</b><button class="mini-btn" data-act="calNext">→</button></div>
+      <div class="cal-grid">${cells}</div>
+      <div class="muted mt">Нажмите на день, чтобы отметить, кто работал и сколько сделал.<br>☀️ день 08:00–20:00 · 🌙 ночь 20:00–08:00 (записывается на дату начала смены).</div>
+    </div>
+    <div class="ui-card"><div class="section-title">Итого за месяц: ${fmtNum(monthTotal, 0)} шт</div>${persons || '<div class="empty">Нет записей</div>'}</div>`;
+}
+
+function viewDay() {
+  const m = curM(), d = ui.day, arr = m.shifts[d] || [];
+  const [yy, mm, dd] = d.split('-');
+  const total = arr.reduce((s, e) => s + num(e.count), 0);
+  const block = type => {
+    const list = arr.filter(e => shiftOf(e) === type);
+    const sum = list.reduce((s, e) => s + num(e.count), 0);
+    const rows = list.map(e => `<div class="shift-row"><span>👤 ${esc(e.who || '—')}: <b>${fmtNum(num(e.count), 0)} шт</b></span>
+      <div class="row-actions">${isAdmin() || e.who === user ? `<button class="mini-btn" data-act="shiftEdit" data-id="${e.id}">✎</button>` : ''}</div></div>`).join('');
+    const hours = type === 'day' ? '08:00–20:00' : '20:00–08:00 (до утра следующего дня)';
+    return `<div class="ui-card"><div class="section-title">${SHIFT_NAMES[type]} · ${fmtNum(sum, 0)} шт</div>
+      <div class="muted" style="margin:-6px 0 10px">${hours}</div>
+      ${rows || '<div class="empty">Записей нет</div>'}
+      <button class="action-button secondary" data-act="shiftAdd" data-s="${type}">+ Отметить человека</button></div>`;
+  };
+  return header(`${dd}.${mm}.${yy}`, `Всего за сутки: ${fmtNum(total, 0)} шт · станок №${m.num}`, true) + block('day') + block('night');
+}
+
+function viewBar() {
+  const m = curM(), c = m.barCfg;
+  const ro = isAdmin() ? '' : 'disabled';
+  const qty = num(m.part.qty), len = num(m.part.len);
+  const perPart = len + num(m.cutW) + num(c.face);
+  const totalMm = qty * perPart;
+  const usable = num(c.barLen) * 1000 - num(c.remnant);
+  const bars = usable > 0 ? Math.ceil(totalMm / usable) : 0;
+  const done = doneOf(m);
+  const leftMm = Math.max(0, qty - done) * perPart;
+  const leftBars = usable > 0 ? Math.ceil(leftMm / usable) : 0;
+  return header('Расчёт прутка', 'Станок №' + m.num, true) +
+    `<div class="ui-card">
+      <div class="params-grid">
+        <div class="param-cell"><span class="param-lbl">Деталь</span><span class="param-val">${esc(m.part.name || '—')}</span></div>
+        <div class="param-cell"><span class="param-lbl">Партия</span><span class="param-val">${fmtNum(qty, 0)} шт</span></div>
+        <div class="param-cell"><span class="param-lbl">Длина детали</span><span class="param-val">${fmtNum(len)} мм</span></div>
+        <div class="param-cell"><span class="param-lbl">Ширина отрезки</span><span class="param-val">${fmtNum(num(m.cutW))} мм</span></div>
+      </div>
+      <div class="two-col">
+        <div class="input-group"><label>Подрезка торца (мм)</label><input type="text" inputmode="decimal" id="b-face" value="${esc(c.face)}" ${ro}></div>
+        <div class="input-group"><label>Длина прутка (м)</label><input type="text" inputmode="decimal" id="b-len" value="${esc(c.barLen)}" ${ro}></div>
+      </div>
+      <div class="input-group"><label>Остаток-огарок на пруток (мм)</label><input type="text" inputmode="decimal" id="b-rem" value="${esc(c.remnant)}" ${ro}></div>
+      <div class="result-box">
+        <div class="muted">Нужно прутка на всю партию</div>
+        <div class="result-big">${fmtNum(totalMm / 1000)} м</div>
+        <div class="result-line"><span>Расход на 1 деталь</span><b>${fmtNum(perPart)} мм</b></div>
+        <div class="result-line"><span>Прутков (по ${fmtNum(num(c.barLen))} м)</span><b>${bars} шт</b></div>
+        <div class="result-line"><span>Осталось сделать</span><b>${fmtNum(Math.max(0, qty - done), 0)} шт</b></div>
+        <div class="result-line"><span>Ещё нужно прутка</span><b>${fmtNum(leftMm / 1000)} м (${leftBars} шт)</b></div>
+      </div>
+      <div class="muted mt">Расход на деталь = длина + ширина отрезного + подрезка торца. ${isAdmin() ? 'Длину детали и количество меняйте в «Наладке станка».' : 'Параметры расчёта меняет наладчик.'}</div>
+    </div>`;
+}
+
+const views = { list: viewList, machine: viewMachine, tools: viewTools, changes: viewChanges, program: viewProgram, drawing: viewDrawing, calendar: viewCalendar, day: viewDay, bar: viewBar };
+function render() {
+  document.getElementById('app').innerHTML = views[ui.view]();
+  window.scrollTo(0, 0);
+}
+function rerender() { const y = window.scrollY; document.getElementById('app').innerHTML = views[ui.view](); window.scrollTo(0, y); }
+
+/* ===================== ДЕЙСТВИЯ ===================== */
+function machineFields(m) {
+  return [
+    { k: 'num', label: 'Номер станка', value: m.num },
+    { k: 'model', label: 'Модель', value: m.model, ph: 'Citizen L20, Star SR-20...' },
+    { k: 'partName', label: 'Деталь', value: m.part.name },
+    { k: 'len', label: 'Длина детали (мм)', type: 'number', value: m.part.len },
+    { k: 'qty', label: 'Партия (шт)', type: 'number', value: m.part.qty },
+    { k: 'dia', label: 'Пруток Ø (мм)', type: 'number', value: m.bar.dia },
+    { k: 'cm', label: 'Цанга Main', value: m.collets.main },
+    { k: 'cb', label: 'Цанга Back', value: m.collets.back },
+    { k: 'cutW', label: 'Ширина отрезного (мм)', type: 'number', value: m.cutW }
+  ];
+}
+function applyMachine(m, o) {
+  m.num = o.num || m.num; m.model = o.model;
+  m.part = { name: o.partName, len: num(o.len), qty: num(o.qty) };
+  m.bar.dia = num(o.dia);
+  m.collets = { main: o.cm, back: o.cb };
+  m.cutW = num(o.cutW);
+}
+
+const REASONS = ['Износ', 'Поломка', 'Смена партии', 'Профилактика', 'Другое'];
+
+const Actions = {
+  open(d) { ui.mid = d.id; ui.view = 'machine'; render(); },
+  back() {
+    if (ui.view === 'machine') ui.view = 'list';
+    else if (ui.view === 'day') ui.view = 'calendar';
+    else ui.view = 'machine';
+    render();
+  },
+  go(d) { ui.view = d.v; render(); },
+  setName() {
+    const fields = [{ k: 'name', label: 'Фамилия Имя', value: user }];
+    if (!isAdmin()) fields.push({ k: 'pin', label: 'PIN администратора (только для наладчиков)', value: '', ph: 'операторам оставить пустым' });
+    else if (!isIdAdmin()) fields.push({ k: 'role', label: 'Режим', type: 'select', options: ['Администратор', 'Оператор'], value: 'Администратор' });
+    modal('Профиль · ' + (isAdmin() ? 'Администратор' : 'Оператор'), fields, o => {
+      if (!o.name) return false;
+      if (o.pin) {
+        if (o.pin === ADMIN_PIN) localStorage.setItem('sc_admin', '1');
+        else { alert('Неверный PIN'); return false; }
+      }
+      if (o.role === 'Оператор') localStorage.removeItem('sc_admin');
+      user = o.name; localStorage.setItem('sc_user', user); render();
+    });
+  },
+  addMachine() {
+    const m = newMachine(pad(db.machines.length + 1), '');
+    modal('Новый станок', machineFields(m), o => {
+      applyMachine(m, o); db.machines.push(m); save(); render();
+    });
+  },
+  editMachine() {
+    const m = curM();
+    modal('Наладка станка', machineFields(m), o => { applyMachine(m, o); save(); render(); },
+      () => { db.machines = db.machines.filter(x => x.id !== m.id); save(); ui.view = 'list'; render(); });
+  },
+  adj(d) {
+    if (!user) return Actions.setName();
+    const m = curM(), e = todayEntry(m, true);
+    e.count = Math.max(0, num(e.count) + num(d.n));
+    save(); rerender();
+  },
+
+  /* инструменты */
+  toolAdd() {
+    const m = curM();
+    modal('Новый инструмент', [
+      { k: 'code', label: 'Позиция (T01...)', value: 'T' + pad(m.tools.length + 1) },
+      { k: 'name', label: 'Название', value: '' },
+      { k: 'spec', label: 'Пластина / размер', value: '' }
+    ], o => { m.tools.push({ id: uid(), code: o.code, name: o.name, spec: o.spec }); save(); rerender(); });
+  },
+  toolEdit(d) {
+    const m = curM(), t = m.tools.find(x => x.id === d.id);
+    modal('Инструмент', [
+      { k: 'code', label: 'Позиция', value: t.code },
+      { k: 'name', label: 'Название', value: t.name },
+      { k: 'spec', label: 'Пластина / размер', value: t.spec }
+    ], o => { Object.assign(t, o); save(); rerender(); },
+      () => { m.tools = m.tools.filter(x => x.id !== t.id); save(); rerender(); });
+  },
+  toolChange(d) {
+    if (!user) return Actions.setName();
+    const m = curM(), t = m.tools.find(x => x.id === d.id);
+    modal('Замена: ' + t.code + ' ' + t.name, [
+      { k: 'reason', label: 'Причина', type: 'select', options: REASONS, value: 'Износ' },
+      { k: 'spec', label: 'Что установлено (пластина / размер)', value: t.spec },
+      { k: 'comment', label: 'Комментарий', value: '' }
+    ], o => {
+      m.changes.push({ id: uid(), ts: new Date().toISOString(), who: user, code: t.code, tool: t.name, reason: o.reason, spec: o.spec, comment: o.comment });
+      t.spec = o.spec || t.spec;
+      save(); rerender();
+    });
+  },
+
+  /* программа */
+  progEdit() {
+    const m = curM(), p = m.program;
+    modal('Программа', [
+      { k: 'name', label: 'Номер / название (O1234)', value: p.name },
+      { k: 'notes', label: 'Заметки', type: 'textarea', rows: 3, value: p.notes },
+      { k: 'code', label: 'Текст программы (необязательно)', type: 'textarea', rows: 8, value: p.code }
+    ], o => { m.program = o; save(); rerender(); });
+  },
+
+  /* чертёж */
+  drawPick() {
+    const inp = document.getElementById('drawfile');
+    inp.onchange = () => {
+      const f = inp.files[0]; if (!f) return;
+      const img = new Image(), url = URL.createObjectURL(f);
+      img.onload = () => {
+        const max = 1400, k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        curM().drawing = c.toDataURL('image/jpeg', 0.75);
+        URL.revokeObjectURL(url); save(); rerender();
+      };
+      img.src = url;
+    };
+    inp.click();
+  },
+  drawView() {
+    const w = document.createElement('div');
+    w.className = 'fullscreen';
+    w.innerHTML = `<img src="${curM().drawing}">`;
+    w.onclick = () => w.remove();
+    document.body.appendChild(w);
+  },
+  drawDel() { if (confirm('Удалить чертёж?')) { curM().drawing = null; save(); rerender(); } },
+
+  /* календарь */
+  calPrev() { ui.month = new Date(ui.month.getFullYear(), ui.month.getMonth() - 1, 1); rerender(); },
+  calNext() { ui.month = new Date(ui.month.getFullYear(), ui.month.getMonth() + 1, 1); rerender(); },
+  calDay(d) { ui.day = d.d; ui.view = 'day'; render(); },
+  shiftAdd(d) {
+    const m = curM();
+    modal('Кто работал', [
+      { k: 'shift', label: 'Смена', type: 'select', options: [SHIFT_NAMES.day, SHIFT_NAMES.night], value: SHIFT_NAMES[d.s || 'day'] },
+      ...(isAdmin() ? [{ k: 'who', label: 'Фамилия Имя', value: user }] : []),
+      { k: 'count', label: 'Сделано деталей (шт)', type: 'number', value: '' }
+    ], o => {
+      const who = isAdmin() ? o.who : user;
+      if (!who) { alert('Укажите своё имя (нажмите на бейдж вверху).'); return false; }
+      const type = o.shift === SHIFT_NAMES.night ? 'night' : 'day';
+      (m.shifts[ui.day] = m.shifts[ui.day] || []).push({ id: uid(), who, shift: type, count: num(o.count) });
+      save(); rerender();
+    });
+  },
+  shiftEdit(d) {
+    const m = curM(), arr = m.shifts[ui.day], e = arr.find(x => x.id === d.id);
+    modal('Запись смены', [
+      { k: 'shift', label: 'Смена', type: 'select', options: [SHIFT_NAMES.day, SHIFT_NAMES.night], value: SHIFT_NAMES[shiftOf(e)] },
+      ...(isAdmin() ? [{ k: 'who', label: 'Фамилия Имя', value: e.who }] : []),
+      { k: 'count', label: 'Сделано деталей (шт)', type: 'number', value: e.count }
+    ], o => { if (isAdmin()) e.who = o.who; e.shift = o.shift === SHIFT_NAMES.night ? 'night' : 'day'; e.count = num(o.count); save(); rerender(); },
+      () => { m.shifts[ui.day] = arr.filter(x => x.id !== e.id); if (!m.shifts[ui.day].length) delete m.shifts[ui.day]; save(); rerender(); });
+  }
+};
+
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-act]');
+  if (!el || !Actions[el.dataset.act]) return;
+  if (ADMIN_ONLY.includes(el.dataset.act) && !isAdmin()) return; // оператору недоступно
+  Actions[el.dataset.act](el.dataset);
+});
+
+/* ручной ввод счётчика и параметров расчёта прутка */
+document.addEventListener('change', e => {
+  const t = e.target;
+  if (t.id === 'mycount') {
+    if (!user) { Actions.setName(); return; }
+    const e2 = todayEntry(curM(), true);
+    e2.count = Math.max(0, Math.round(num(t.value)));
+    save(); rerender();
+  } else if (t.id === 'b-face' || t.id === 'b-len' || t.id === 'b-rem') {
+    if (!isAdmin()) return;
+    const c = curM().barCfg;
+    if (t.id === 'b-face') c.face = num(t.value);
+    if (t.id === 'b-len') c.barLen = num(t.value);
+    if (t.id === 'b-rem') c.remnant = num(t.value);
+    save(); rerender();
+  }
+});
+
+/* ===================== СТАРТ ===================== */
+render();
+if (!user) setTimeout(() => Actions.setName(), 300);
+</script>
+</body>
+</html>
