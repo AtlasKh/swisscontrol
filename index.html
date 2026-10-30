@@ -180,11 +180,9 @@ let user = getUser();
    ВАЖНО: пока нет сервера, защита работает на уровне интерфейса (кнопки
    скрыты и заблокированы). Для настоящей защиты права нужно проверять на
    сервере по подписи Telegram (initData). */
-const ADMIN_IDS = [];      // Telegram ID наладчиков, например [123456789, 987654321]
-const ADMIN_PIN = '1234';  // PIN для входа администратором — ОБЯЗАТЕЛЬНО смените
+const ADMIN_IDS = [381731875];   // Telegram ID наладчиков/админов. Новый админ: добавить ID через запятую, например [381731875, 123456789]
 const tgId = () => { const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user; return u ? u.id : null; };
-const isIdAdmin = () => tgId() !== null && ADMIN_IDS.includes(tgId());
-const isAdmin = () => isIdAdmin() || localStorage.getItem('sc_admin') === '1';
+const isAdmin = () => tgId() !== null && ADMIN_IDS.includes(tgId());
 const ADMIN_ONLY = ['addMachine', 'editMachine', 'toolAdd', 'toolEdit', 'progEdit', 'drawPick', 'drawDel'];
 
 /* ===================== СОСТОЯНИЕ UI ===================== */
@@ -510,16 +508,8 @@ const Actions = {
   },
   go(d) { ui.view = d.v; render(); },
   setName() {
-    const fields = [{ k: 'name', label: 'Фамилия Имя', value: user }];
-    if (!isAdmin()) fields.push({ k: 'pin', label: 'PIN администратора (только для наладчиков)', value: '', ph: 'операторам оставить пустым' });
-    else if (!isIdAdmin()) fields.push({ k: 'role', label: 'Режим', type: 'select', options: ['Администратор', 'Оператор'], value: 'Администратор' });
-    modal('Профиль · ' + (isAdmin() ? 'Администратор' : 'Оператор'), fields, o => {
+    modal('Профиль · ' + (isAdmin() ? 'Администратор' : 'Оператор'), [{ k: 'name', label: 'Фамилия Имя', value: user }], o => {
       if (!o.name) return false;
-      if (o.pin) {
-        if (o.pin === ADMIN_PIN) localStorage.setItem('sc_admin', '1');
-        else { alert('Неверный PIN'); return false; }
-      }
-      if (o.role === 'Оператор') localStorage.removeItem('sc_admin');
       user = o.name; localStorage.setItem('sc_user', user); render();
     });
   },
