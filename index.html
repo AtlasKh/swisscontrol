@@ -121,15 +121,22 @@ const isoDate = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d
 const fmtDT = iso => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' });
 const fmtNum = (n, d = 2) => (Math.round(n * Math.pow(10, d)) / Math.pow(10, d)).toString().replace('.', ',');
 
-/* ===================== ХРАНИЛИЩЕ =====================
-   Сейчас данные лежат в localStorage (у каждого пользователя свои).
-   Для общей базы для всех сотрудников нужно заменить ТОЛЬКО этот блок
-   (load/save) на обращения к серверу. Остальной код менять не придётся. */
+/* ===================== ПОДКЛЮЧЕНИЕ К БАЗЕ (Supabase) =====================
+   Вставьте сюда два значения из Supabase (Project URL и publishable key).
+   Пока они пустые, приложение работает в локальном режиме:
+   данные хранятся только на этом телефоне. */
+const SUPABASE_URL = 'https://rxjvsjpigsryxjrbfujr.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_F0JlRlRMDnho42UH18YO5g_bEwxOpgS';
+const CLOUD = !!(SUPABASE_URL && SUPABASE_KEY);
+
+/* ===================== ЛОКАЛЬНЫЙ КЭШ =====================
+   В облачном режиме тут лежит только копия данных (без чертежей),
+   главная база находится в Supabase (см. блок «ОБЛАКО» ниже). */
 const KEY = 'swisscontrol_v1';
 const Store = {
   load() { try { return JSON.parse(localStorage.getItem(KEY)); } catch (e) { return null; } },
   save(data) {
-    try { localStorage.setItem(KEY, JSON.stringify(data)); }
+    try { localStorage.setItem(KEY, JSON.stringify(data, CLOUD ? (k, v) => (k === 'drawing' ? undefined : v) : undefined)); }
     catch (e) { alert('Не хватает памяти для сохранения. Удалите чертёж или уменьшите изображения.'); }
   }
 };
@@ -163,7 +170,218 @@ function seedData() {
 }
 
 let db = Store.load() || seedData();
-const save = () => Store.save(db);
+/* ===================== ОБЛАКО (Supabase) =====================
+   Как это работает: весь остальной код по-прежнему меняет объект db и
+   вызывает save(). Слой ниже сам сравнивает db с тем, что уже лежит на
+   сервере, и отправляет только изменившиеся строки. Каждые 12 секунд
+   (и при возврате в приложение) подтягиваются изменения других людей. */
+const Sync = { enabled: CLOUD, ready: false, busy: false, again: false, dirty: false, queued: false,
+  online: true, error: null, snap: { m: {}, e: {}, c: {} }, loading: {}, t: null, started: false };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const SAFE_ID = /^[A-Za-z0-9_-]+$/;
+
+async function rest(path, opts = {}) {
+  const h = Object.assign({ apikey: SUPABASE_KEY, 'Content-Type': 'application/json' }, opts.headers || {});
+  if (SUPABASE_KEY.startsWith('eyJ')) h.Authorization = 'Bearer ' + SUPABASE_KEY; // старый (legacy) ключ
+  const r = await fetch(SUPABASE_URL.replace(/\/+$/, '') + '/rest/v1/' + path, {
+    method: opts.method || 'GET', headers: h, body: opts.body ? JSON.stringify(opts.body) : undefined
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(r.status + ' ' + text.slice(0, 200));
+  return text ? JSON.parse(text) : null;
+}
+async function restAll(path) {            // сервер отдаёт максимум 1000 строк за раз
+  const out = [], sep = path.includes('?') ? '&' : '?';
+  for (let off = 0; ; off += 1000) {
+    const part = await rest(path + sep + 'limit=1000&offset=' + off);
+    for (const row of part) out.push(row);
+    if (part.length < 1000) break;
+  }
+  return out;
+}
+
+/* db -> строки таблиц */
+function toRows(d) {
+  const rows = { m: {}, e: {}, c: {} };
+  for (const m of d.machines) {
+    const { drawing, shifts, changes, ...data } = m;
+    data.hasDrawing = !!(drawing || m.hasDrawing);
+    rows.m[m.id] = { id: m.id, data };
+    for (const [day, arr] of Object.entries(m.shifts || {})) for (const e of arr)
+      rows.e[e.id] = { id: e.id, machine_id: m.id, day, shift: shiftOf(e), who: e.who || '—', count: Math.round(num(e.count)) };
+    for (const c of (m.changes || []))
+      rows.c[c.id] = { id: c.id, machine_id: m.id, ts: c.ts, who: c.who || null, code: c.code || null, tool: c.tool || null, reason: c.reason || null, spec: c.spec || null, comment: c.comment || null };
+  }
+  return rows;
+}
+function serialize(rows) {
+  const s = { m: {}, e: {}, c: {} };
+  for (const k of ['m', 'e', 'c']) for (const id in rows[k]) s[k][id] = JSON.stringify(rows[k][id]);
+  return s;
+}
+
+function setOnline(ok, msg) {
+  const changed = Sync.online !== ok;
+  Sync.online = ok; Sync.error = ok ? null : msg;
+  const a = document.activeElement;
+  if (changed && Sync.ready && !document.querySelector('.modal-bg') && !(a && /INPUT|TEXTAREA|SELECT/.test(a.tagName))) rerender();
+}
+
+/* отправка изменений на сервер */
+async function syncPush() {
+  if (!Sync.enabled || !Sync.ready) return;
+  Sync.queued = false;
+  if (Sync.busy) { Sync.again = true; return; }
+  Sync.busy = true;
+  try {
+    do {
+      Sync.again = false;
+      const rows = toRows(db), ser = serialize(rows);
+      const changed = k => Object.keys(rows[k]).filter(id => Sync.snap[k][id] !== ser[k][id]).map(id => rows[k][id]);
+      const removed = k => Object.keys(Sync.snap[k]).filter(id => !(id in rows[k]) && SAFE_ID.test(id));
+      const up = (table, arr) => rest(table + '?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: arr });
+      const del = (table, ids) => rest(table + '?id=in.(' + ids.join(',') + ')', { method: 'DELETE' });
+      const cm = changed('m'), ce = changed('e'), cc = changed('c');
+      if (cm.length) await up('machines', cm);              // станки раньше записей (связь по ключу)
+      if (ce.length) await up('shift_entries', ce);
+      if (cc.length) await up('tool_changes', cc);
+      const de = removed('e'), dm = removed('m');
+      if (de.length) await del('shift_entries', de);
+      if (dm.length) await del('machines', dm);
+      Sync.snap = ser;
+    } while (Sync.again);
+    Sync.dirty = Sync.queued;
+    setOnline(true);
+  } catch (e) {
+    Sync.dirty = true;
+    setOnline(false, e.message);
+    clearTimeout(Sync.t); Sync.t = setTimeout(syncPush, 8000);   // повторим позже
+  }
+  Sync.busy = false;
+}
+async function flushNow() {
+  clearTimeout(Sync.t);
+  while (Sync.busy) await sleep(100);
+  await syncPush();
+}
+
+function save() {
+  Store.save(db);
+  if (Sync.enabled && Sync.ready) {
+    Sync.dirty = true; Sync.queued = true;
+    clearTimeout(Sync.t); Sync.t = setTimeout(syncPush, 300);
+  }
+}
+
+/* получение данных с сервера. Возвращает true, если что-то изменилось */
+async function syncPull(first) {
+  const [ms, es, cs] = await Promise.all([
+    restAll('machines?select=id,data&order=id'),
+    restAll('shift_entries?select=id,machine_id,day,shift,who,count&order=id'),
+    restAll('tool_changes?select=*&order=id')
+  ]);
+  if (!ms.length && first) {                       // сервер пуст: первый админ загружает то, что есть на телефоне
+    if (isAdmin()) {
+      Sync.ready = true;
+      for (const m of db.machines) if (m.drawing) { m.hasDrawing = true; m.drawingV = m.drawingV || Date.now(); }
+      await syncPush();
+      if (!Sync.online) throw new Error(Sync.error || 'не удалось загрузить данные');
+      for (const m of db.machines) if (m.drawing) await Sync.putDrawing(m.id, m.drawing);
+      return true;
+    }
+    db = { machines: [] }; Store.save(db); Sync.snap = { m: {}, e: {}, c: {} };
+    return true;
+  }
+  if (Sync.dirty || Sync.busy || Sync.queued) return false;   // у нас есть неотправленные правки — не затираем
+  const old = {};
+  db.machines.forEach(m => { old[m.id] = m; });
+  const byId = {};
+  const machines = ms.map(r => {
+    const m = Object.assign(newMachine('', ''), r.data, { id: r.id });
+    m.shifts = {}; m.changes = []; m.drawing = null;
+    const o = old[r.id];
+    if (o && o.drawing && m.hasDrawing && o.drawingV === m.drawingV) m.drawing = o.drawing;   // чертёж не менялся
+    else delete Sync.loading[r.id];
+    byId[r.id] = m; return m;
+  });
+  for (const e of es) {
+    const m = byId[e.machine_id]; if (!m) continue;
+    (m.shifts[e.day] = m.shifts[e.day] || []).push({ id: e.id, who: e.who, shift: e.shift, count: e.count });
+  }
+  for (const c of cs) {
+    const m = byId[c.machine_id];
+    if (m) m.changes.push({ id: c.id, ts: c.ts, who: c.who, code: c.code, tool: c.tool, reason: c.reason, spec: c.spec, comment: c.comment });
+  }
+  machines.forEach(m => m.changes.sort((a, b) => new Date(a.ts) - new Date(b.ts)));
+  machines.sort((a, b) => String(a.num).localeCompare(String(b.num), 'ru', { numeric: true }));
+  const strip = (k, v) => (k === 'drawing' ? undefined : v);
+  const before = JSON.stringify(db, strip);
+  db = { machines };
+  const after = JSON.stringify(db, strip);
+  Sync.snap = serialize(toRows(db));
+  Store.save(db);
+  if (ui.mid && !machines.find(m => m.id === ui.mid)) { ui.mid = null; ui.view = 'list'; }
+  return before !== after;
+}
+
+async function syncTick(force) {
+  if (!Sync.enabled || !Sync.ready || Sync.busy || Sync.dirty || Sync.queued) return;
+  const a = document.activeElement;
+  if (!force && (document.querySelector('.modal-bg') || (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)))) return;
+  try {
+    const changed = await syncPull(false);
+    setOnline(true);
+    if (changed && !document.querySelector('.modal-bg')) rerender();
+  } catch (e) { setOnline(false, e.message); }
+}
+
+Sync.boot = async function () {
+  try {
+    await syncPull(true);
+    Sync.ready = true; Sync.error = null; Sync.online = true;
+    render();
+    if (!Sync.started) {
+      Sync.started = true;
+      setInterval(() => syncTick(), 12000);
+      document.addEventListener('visibilitychange', () => { if (!document.hidden) syncTick(true); });
+      window.addEventListener('focus', () => syncTick(true));
+    }
+  } catch (e) { Sync.ready = false; Sync.error = e.message; render(); }
+};
+
+/* чертежи хранятся отдельно (они тяжёлые) и подгружаются при открытии */
+Sync.putDrawing = async function (id, image) {
+  if (!Sync.enabled) return;
+  try {
+    await flushNow();
+    await rest('drawings?on_conflict=machine_id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: [{ machine_id: id, image }] });
+  } catch (e) { alert('Не удалось сохранить чертёж на сервере: ' + e.message); }
+};
+Sync.delDrawing = async function (id) {
+  if (!Sync.enabled || !SAFE_ID.test(id)) return;
+  try { await flushNow(); await rest('drawings?machine_id=eq.' + id, { method: 'DELETE' }); } catch (e) { setOnline(false, e.message); }
+};
+Sync.loadDrawing = async function (id) {
+  if (Sync.loading[id] || !SAFE_ID.test(id)) return;
+  Sync.loading[id] = true;
+  try {
+    const r = await rest('drawings?machine_id=eq.' + id + '&select=image');
+    const m = db.machines.find(x => x.id === id);
+    if (m && r && r[0]) { m.drawing = r[0].image; if (ui.view === 'drawing' && ui.mid === id) rerender(); }
+  } catch (e) { delete Sync.loading[id]; }
+};
+
+function gateView() {
+  if (!Sync.enabled || Sync.ready) return null;
+  if (Sync.error) return header('SwissControl', 'Нет связи с сервером', false) +
+    `<div class="ui-card"><div class="card-title">⚠️ Не удалось загрузить данные</div>
+      <div class="muted">Проверьте интернет и попробуйте ещё раз.</div>
+      <div class="muted mt" style="word-break:break-all">${esc(Sync.error)}</div>
+      <button class="action-button mt" data-act="syncRetry">Повторить</button></div>`;
+  return header('SwissControl', 'Загрузка данных…', false) +
+    '<div class="ui-card"><div class="empty">⏳ Загружаем данные с сервера…</div></div>';
+}
+const viewHtml = () => gateView() || views[ui.view]();
 
 /* ===================== ПОЛЬЗОВАТЕЛЬ ===================== */
 function getUser() {
@@ -271,7 +489,7 @@ function schematic(m) {
 function header(title, sub, back) {
   return `<div class="app-header">
     ${back ? '<button class="back-btn" data-act="back">←</button>' : ''}
-    <div style="flex:1;min-width:0"><div class="logo-text">${esc(title)}</div><div class="logo-sub">${esc(sub)}</div></div>
+    <div style="flex:1;min-width:0"><div class="logo-text">${esc(title)}</div><div class="logo-sub">${esc(sub)}${Sync.enabled && Sync.ready && !Sync.online ? ' · ⚠️ нет связи' : ''}</div></div>
     <div class="user-badge" data-act="setName">${isAdmin() ? '🔑' : '👷'} ${esc(user || 'Ваше имя')}</div>
   </div>`;
 }
@@ -325,7 +543,7 @@ function viewMachine() {
     <div class="menu-btn" data-act="go" data-v="tools"><span class="menu-ico">🔧</span><div class="menu-lbl">Инструменты</div><div class="menu-sub">${toolsCnt} шт</div></div>
     <div class="menu-btn" data-act="go" data-v="changes"><span class="menu-ico">🔄</span><div class="menu-lbl">Замены</div><div class="menu-sub">${m.changes.length} записей</div></div>
     <div class="menu-btn" data-act="go" data-v="program"><span class="menu-ico">💾</span><div class="menu-lbl">Программа</div><div class="menu-sub">${esc(m.program.name || 'не задана')}</div></div>
-    <div class="menu-btn" data-act="go" data-v="drawing"><span class="menu-ico">📐</span><div class="menu-lbl">Чертёж</div><div class="menu-sub">${m.drawing ? 'загружен' : 'нет'}</div></div>
+    <div class="menu-btn" data-act="go" data-v="drawing"><span class="menu-ico">📐</span><div class="menu-lbl">Чертёж</div><div class="menu-sub">${(m.drawing || m.hasDrawing) ? 'загружен' : 'нет'}</div></div>
     <div class="menu-btn" data-act="go" data-v="calendar"><span class="menu-ico">📅</span><div class="menu-lbl">Календарь смен</div><div class="menu-sub">кто и сколько</div></div>
     <div class="menu-btn" data-act="go" data-v="bar"><span class="menu-ico">📏</span><div class="menu-lbl">Расчёт прутка</div><div class="menu-sub">метры на партию</div></div>
   </div>`;
@@ -368,12 +586,14 @@ function viewProgram() {
 
 function viewDrawing() {
   const m = curM();
+  const has = !!(m.drawing || m.hasDrawing);
+  if (!m.drawing && m.hasDrawing && Sync.enabled) Sync.loadDrawing(m.id);
   return header('Чертёж детали', 'Станок №' + m.num, true) +
     `<div class="ui-card">
-      ${m.drawing ? `<img class="draw-img" src="${m.drawing}" data-act="drawView">` : '<div class="empty">Чертёж не загружен</div>'}
+      ${m.drawing ? `<img class="draw-img" src="${m.drawing}" data-act="drawView">` : has ? '<div class="empty">⏳ Загрузка чертежа…</div>' : '<div class="empty">Чертёж не загружен</div>'}
       <input type="file" id="drawfile" accept="image/*" style="display:none">
-      ${isAdmin() ? `<button class="action-button mt" data-act="drawPick">${m.drawing ? 'Заменить чертёж' : 'Загрузить чертёж (фото)'}</button>
-      ${m.drawing ? '<button class="action-button secondary mt" data-act="drawDel">Удалить чертёж</button>' : ''}` : ''}
+      ${isAdmin() ? `<button class="action-button mt" data-act="drawPick">${has ? 'Заменить чертёж' : 'Загрузить чертёж (фото)'}</button>
+      ${has ? '<button class="action-button secondary mt" data-act="drawDel">Удалить чертёж</button>' : ''}` : ''}
       <div class="muted mt">Нажмите на чертёж, чтобы открыть на весь экран.</div>
     </div>`;
 }
@@ -469,10 +689,10 @@ function viewBar() {
 
 const views = { list: viewList, machine: viewMachine, tools: viewTools, changes: viewChanges, program: viewProgram, drawing: viewDrawing, calendar: viewCalendar, day: viewDay, bar: viewBar };
 function render() {
-  document.getElementById('app').innerHTML = views[ui.view]();
+  document.getElementById('app').innerHTML = viewHtml();
   window.scrollTo(0, 0);
 }
-function rerender() { const y = window.scrollY; document.getElementById('app').innerHTML = views[ui.view](); window.scrollTo(0, y); }
+function rerender() { const y = window.scrollY; document.getElementById('app').innerHTML = viewHtml(); window.scrollTo(0, y); }
 
 /* ===================== ДЕЙСТВИЯ ===================== */
 function machineFields(m) {
@@ -584,8 +804,10 @@ const Actions = {
         const c = document.createElement('canvas');
         c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        curM().drawing = c.toDataURL('image/jpeg', 0.75);
+        const m = curM();
+        m.drawing = c.toDataURL('image/jpeg', 0.75); m.hasDrawing = true; m.drawingV = Date.now();
         URL.revokeObjectURL(url); save(); rerender();
+        Sync.putDrawing(m.id, m.drawing);
       };
       img.src = url;
     };
@@ -598,7 +820,13 @@ const Actions = {
     w.onclick = () => w.remove();
     document.body.appendChild(w);
   },
-  drawDel() { if (confirm('Удалить чертёж?')) { curM().drawing = null; save(); rerender(); } },
+  drawDel() {
+    if (!confirm('Удалить чертёж?')) return;
+    const m = curM();
+    m.drawing = null; m.hasDrawing = false; m.drawingV = Date.now();
+    save(); rerender(); Sync.delDrawing(m.id);
+  },
+  syncRetry() { Sync.error = null; render(); Sync.boot(); },
 
   /* календарь */
   calPrev() { ui.month = new Date(ui.month.getFullYear(), ui.month.getMonth() - 1, 1); rerender(); },
@@ -657,6 +885,7 @@ document.addEventListener('change', e => {
 /* ===================== СТАРТ ===================== */
 render();
 if (!user) setTimeout(() => Actions.setName(), 300);
+if (Sync.enabled) Sync.boot();
 </script>
 </body>
 </html>
