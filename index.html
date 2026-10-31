@@ -148,7 +148,7 @@ function newMachine(num_, model) {
     part: { name: '', len: 0, qty: 0 },
     bar: { dia: 0 },
     collets: { main: '', back: '' },
-    cutW: 3, 
+    cutW: 3, cycle: 0, eff: 85,
     barCfg: { face: 0.5, barLen: 3, remnant: 300 },
     tools: [], changes: [],
     program: { name: '', notes: '', code: '' },
@@ -384,7 +384,7 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 const APP_DATE = '31.10.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => (gateView() || views[ui.view]()) + footerHtml();
@@ -404,7 +404,7 @@ let user = getUser();
    ВАЖНО: пока нет сервера, защита работает на уровне интерфейса (кнопки
    скрыты и заблокированы). Для настоящей защиты права нужно проверять на
    сервере по подписи Telegram (initData). */
-const ADMIN_IDS = [381731875];   // Telegram ID наладчиков/админов. Новый админ: добавить ID через запятую, например [381731875, 123456789]
+const ADMIN_IDS = [381731875, 386039399];   // Telegram ID наладчиков/админов. Новый админ: добавить ID через запятую
 const tgId = () => { const u = tg && tg.initDataUnsafe && tg.initDataUnsafe.user; return u ? u.id : null; };
 const isAdmin = () => tgId() !== null && ADMIN_IDS.includes(tgId());
 const ADMIN_ONLY = ['addMachine', 'editMachine', 'toolAdd', 'toolEdit', 'progEdit', 'drawPick', 'drawDel'];
@@ -413,11 +413,12 @@ const ADMIN_ONLY = ['addMachine', 'editMachine', 'toolAdd', 'toolEdit', 'progEdi
 const ui = { view: 'list', mid: null, month: new Date(), day: null };
 const curM = () => db.machines.find(m => m.id === ui.mid);
 const doneOf = m => Object.values(m.shifts).reduce((s, arr) => s + arr.reduce((a, e) => a + num(e.count), 0), 0);
-/* Смены: день 08:00–20:00, ночь 20:00–08:00.
+/* Смены: день 06:00–18:00, ночь 18:00–06:00.
    Ночная смена записывается на дату, когда она НАЧАЛАСЬ
    (в 03:00 30-го числа идёт ночь от 29-го). */
 const SHIFT_NAMES = { day: '☀️ День', night: '🌙 Ночь' };
-const DAY_START = 8, NIGHT_START = 20;
+const DAY_START = 6, NIGHT_START = 18, SHIFT_HOURS = 12;
+const hh = h => String(h).padStart(2, '0') + ':00';
 function currentShift() {
   const now = new Date(), h = now.getHours();
   const d = new Date(now);
@@ -517,6 +518,62 @@ function viewList() {
     (isAdmin() ? '<button class="action-button" data-act="addMachine">+ Добавить станок</button>' : '');
 }
 
+/* ===================== ПРОГНОЗ ПО ПАРТИИ =====================
+   Теория: из времени цикла и загрузки станка считаем производительность.
+   Факт: среднее по уже внесённым записям смен (текущая, ещё не закрытая смена не учитывается). */
+const fmtDur = hours => {
+  if (!isFinite(hours)) return '—';
+  const totalH = Math.max(0, Math.round(hours));
+  const d = Math.floor(totalH / 24), h = totalH % 24;
+  return (d ? d + ' дн ' : '') + h + ' ч';
+};
+function factPerShift(m) {
+  const cs = currentShift(), groups = {};
+  for (const [day, arr] of Object.entries(m.shifts || {})) for (const e of arr) {
+    const k = day + '|' + shiftOf(e);
+    if (k === cs.date + '|' + cs.type) continue;
+    groups[k] = (groups[k] || 0) + num(e.count);
+  }
+  const vals = Object.values(groups).filter(v => v > 0);
+  return vals.length ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
+}
+function forecastHtml(m) {
+  const qty = num(m.part.qty), left = Math.max(0, qty - doneOf(m));
+  const cyc = num(m.cycle), eff = Math.min(100, Math.max(1, num(m.eff) || 85)) / 100;
+  const head = '<div class="section-title">⏱ Прогноз по партии</div>';
+  if (!(cyc > 0)) return `<div class="ui-card">${head}<div class="muted">${isAdmin()
+    ? 'Укажите «Время цикла на 1 деталь» в «Наладке станка», и здесь появится расчёт смен и срока окончания.'
+    : 'Время цикла пока не задано наладчиком.'}</div></div>`;
+  const perHour = 3600 / cyc * eff, perShift = perHour * SHIFT_HOURS;
+  const fact = factPerShift(m);
+  const line = (a, b) => `<div class="result-line"><span>${a}</span><b>${b}</b></div>`;
+  let main;
+  if (qty > 0 && left === 0) main = '<div class="result-big">✅ Партия выполнена</div>';
+  else if (qty <= 0) main = '<div class="muted">Укажите размер партии в «Наладке станка».</div>';
+  else {
+    const hours = left / perHour;
+    const finish = new Date(Date.now() + hours * 3600 * 1000);
+    main = `<div class="muted">До конца партии (осталось ${fmtNum(left, 0)} шт)</div>
+      <div class="result-big">≈ ${fmtDur(hours)}</div>
+      ${line('Это смен по ' + SHIFT_HOURS + ' ч', '≈ ' + fmtNum(hours / SHIFT_HOURS, 1))}
+      ${line('Окончание примерно', fmtDT(finish.toISOString()))}`;
+    if (fact) {
+      const fh = left / (fact.avg / SHIFT_HOURS);
+      main += line('По факту (' + fmtNum(fact.avg, 0) + ' шт/смену)', '≈ ' + fmtDur(fh));
+    }
+  }
+  return `<div class="ui-card">${head}<div class="result-box" style="margin-top:0">${main}
+    <div style="border-top:1px solid #F2CDAE;margin:8px 0 4px"></div>
+    ${line('Цикл на деталь', fmtNum(cyc) + ' сек · загрузка ' + fmtNum(eff * 100, 0) + '%')}
+    ${line('Деталей в час', '≈ ' + fmtNum(perHour, 0))}
+    ${line('☀️ День (' + hh(DAY_START) + '–' + hh(NIGHT_START) + ')', '≈ ' + fmtNum(perShift, 0) + ' шт')}
+    ${line('🌙 Ночь (' + hh(NIGHT_START) + '–' + hh(DAY_START) + ')', '≈ ' + fmtNum(perShift, 0) + ' шт')}
+    ${line('За сутки', '≈ ' + fmtNum(perShift * 2, 0) + ' шт')}
+    ${fact ? line('Факт: в среднем за смену', fmtNum(fact.avg, 0) + ' шт (' + fact.n + ' смен)') : ''}
+  </div>
+  <div class="muted mt">Расчётное время, при работе станка в обе смены без остановок, кроме учтённой загрузки.</div></div>`;
+}
+
 function viewMachine() {
   const m = curM();
   const done = doneOf(m), qty = num(m.part.qty), pct = qty ? Math.min(100, done / qty * 100) : 0;
@@ -545,6 +602,7 @@ function viewMachine() {
     </div>
     ${isAdmin() ? '<button class="action-button secondary mt" data-act="editMachine">⚙️ Наладка станка</button>' : ''}
   </div>
+  ${forecastHtml(m)}
   <div class="menu-grid">
     <div class="menu-btn" data-act="go" data-v="tools"><span class="menu-ico">🔧</span><div class="menu-lbl">Инструменты</div><div class="menu-sub">${toolsCnt} шт</div></div>
     <div class="menu-btn" data-act="go" data-v="changes"><span class="menu-ico">🔄</span><div class="menu-lbl">Замены</div><div class="menu-sub">${m.changes.length} записей</div></div>
@@ -634,7 +692,7 @@ function viewCalendar() {
     `<div class="ui-card">
       <div class="cal-head"><button class="mini-btn" data-act="calPrev">←</button><b>${esc(monthName)}</b><button class="mini-btn" data-act="calNext">→</button></div>
       <div class="cal-grid">${cells}</div>
-      <div class="muted mt">Нажмите на день, чтобы отметить, кто работал и сколько сделал.<br>☀️ день 08:00–20:00 · 🌙 ночь 20:00–08:00 (записывается на дату начала смены).</div>
+      <div class="muted mt">Нажмите на день, чтобы отметить, кто работал и сколько сделал.<br>☀️ день ${hh(DAY_START)}–${hh(NIGHT_START)} · 🌙 ночь ${hh(NIGHT_START)}–${hh(DAY_START)} (записывается на дату начала смены).</div>
     </div>
     <div class="ui-card"><div class="section-title">Итого за месяц: ${fmtNum(monthTotal, 0)} шт</div>${persons || '<div class="empty">Нет записей</div>'}</div>`;
 }
@@ -648,7 +706,7 @@ function viewDay() {
     const sum = list.reduce((s, e) => s + num(e.count), 0);
     const rows = list.map(e => `<div class="shift-row"><span>👤 ${esc(e.who || '—')}: <b>${fmtNum(num(e.count), 0)} шт</b></span>
       <div class="row-actions">${isAdmin() || e.who === user ? `<button class="mini-btn" data-act="shiftEdit" data-id="${e.id}">✎</button>` : ''}</div></div>`).join('');
-    const hours = type === 'day' ? '08:00–20:00' : '20:00–08:00 (до утра следующего дня)';
+    const hours = type === 'day' ? `${hh(DAY_START)}–${hh(NIGHT_START)}` : `${hh(NIGHT_START)}–${hh(DAY_START)} (до утра следующего дня)`;
     return `<div class="ui-card"><div class="section-title">${SHIFT_NAMES[type]} · ${fmtNum(sum, 0)} шт</div>
       <div class="muted" style="margin:-6px 0 10px">${hours}</div>
       ${rows || '<div class="empty">Записей нет</div>'}
@@ -676,14 +734,16 @@ function barResultHtml(m) {
   const left = Math.max(0, qty - done);
   const all = calc(qty * perPart), rest = calc(left * perPart);
   const warn = !ok ? '<div class="muted" style="color:#C0392B;margin-top:6px">⚠️ Остаток-огарок больше длины прутка, проверьте значения.</div>' : '';
-  return `<div class="muted">Нужно прутка на всю партию (с огарками)</div>
-    <div class="result-big">${fmtNum(all.all / 1000)} м</div>
-    <div class="result-line"><span>Расход на 1 деталь</span><b>${fmtNum(perPart)} мм</b></div>
-    <div class="result-line"><span>На детали (без огарков)</span><b>${fmtNum(all.parts / 1000)} м</b></div>
-    <div class="result-line"><span>Огарки (${fmtNum(num(remnant), 0)} мм × прутки)</span><b>${fmtNum(all.rem / 1000)} м</b></div>
-    <div class="result-line"><span>Прутков целиком (по ${fmtNum(num(c.barLen))} м)</span><b>${all.bars} шт</b></div>
-    <div class="result-line"><span>Осталось сделать</span><b>${fmtNum(left, 0)} шт</b></div>
-    <div class="result-line"><span>Ещё нужно прутка</span><b>${fmtNum(rest.all / 1000)} м (${rest.bars} шт)</b></div>${warn}`;
+  const line = (a, b) => `<div class="result-line"><span>${a}</span><b>${b}</b></div>`;
+  return `<div class="muted">Нужно прутка до конца партии (с огарками)</div>
+    <div class="result-big">${fmtNum(rest.all / 1000)} м</div>
+    ${line('Осталось сделать', fmtNum(left, 0) + ' шт из ' + fmtNum(qty, 0))}
+    ${line('Прутков целиком (по ' + fmtNum(num(c.barLen)) + ' м)', rest.bars + ' шт')}
+    <div style="border-top:1px solid #F2CDAE;margin:8px 0 4px"></div>
+    ${line('Всего на партию (с огарками)', fmtNum(all.all / 1000) + ' м (' + all.bars + ' шт)')}
+    ${line('Расход на 1 деталь', fmtNum(perPart) + ' мм')}
+    ${line('Детали на всю партию (без огарков)', fmtNum(all.parts / 1000) + ' м')}
+    ${line('Огарки на всю партию (' + fmtNum(remnant, 0) + ' мм × прутки)', fmtNum(all.rem / 1000) + ' м')}${warn}`;
 }
 
 function viewBar() {
@@ -743,7 +803,9 @@ function machineFields(m) {
     { k: 'dia', label: 'Пруток Ø (мм)', type: 'number', value: m.bar.dia },
     { k: 'cm', label: 'Цанга Main', value: m.collets.main },
     { k: 'cb', label: 'Цанга Back', value: m.collets.back },
-    { k: 'cutW', label: 'Ширина отрезного (мм)', type: 'number', value: m.cutW }
+    { k: 'cutW', label: 'Ширина отрезного (мм)', type: 'number', value: m.cutW },
+    { k: 'cycle', label: 'Время цикла на 1 деталь (сек)', type: 'number', value: m.cycle || '', ph: 'например 24,5' },
+    { k: 'eff', label: 'Загрузка станка, % (простои, смена прутка, наладка)', type: 'number', value: m.eff || 85 }
   ];
 }
 function applyMachine(m, o) {
@@ -752,6 +814,8 @@ function applyMachine(m, o) {
   m.bar.dia = num(o.dia);
   m.collets = { main: o.cm, back: o.cb };
   m.cutW = num(o.cutW);
+  m.cycle = Math.max(0, num(o.cycle));
+  m.eff = Math.min(100, Math.max(1, num(o.eff) || 85));
 }
 
 const REASONS = ['Износ', 'Поломка', 'Смена партии', 'Профилактика', 'Другое'];
