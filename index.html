@@ -9,7 +9,43 @@
 /* ===================== СТИЛИ ===================== */
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
 body { background: linear-gradient(180deg, #F4F7F9 0%, #EAEFF4 100%); color: #3A4750; min-height: 100vh; display: flex; justify-content: center; }
-#app { width: 100%; max-width: 460px; padding: 16px; padding-bottom: 40px; }
+#app { width: 100%; max-width: 460px; padding: 16px; padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+
+/* нижняя панель навигации */
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; background: rgba(255,255,255,.97); border-top: 1px solid #DCE3EB; display: flex; justify-content: center; padding-bottom: env(safe-area-inset-bottom); box-shadow: 0 -4px 16px rgba(160,180,200,.12); }
+.tabbar-in { display: flex; width: 100%; max-width: 460px; }
+.tab { flex: 1; text-align: center; padding: 8px 0 7px; font-size: 11px; font-weight: 700; color: #8FA0AF; cursor: pointer; }
+.tab .ico { display: block; font-size: 21px; line-height: 1.2; filter: grayscale(1); opacity: .6; }
+.tab.active { color: #E28743; }
+.tab.active .ico { filter: none; opacity: 1; }
+
+/* раздел «Резьбы» */
+.kind-card { background: #fff; border: 1px solid #DCE3EB; border-radius: 24px; padding: 22px 16px 18px; margin-bottom: 14px; text-align: center; cursor: pointer; box-shadow: 0 8px 24px rgba(160,180,200,.08); }
+.kind-card:active, .big-btn:active { background: #F4F7F9; }
+.kind-lbl { margin-top: 12px; font-size: 15px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; color: #2B3A4A; }
+.big-btn { background: #fff; border: 1px solid #DCE3EB; border-radius: 18px; padding: 15px; margin-bottom: 10px; text-align: center; font-size: 19px; font-weight: 800; color: #2B3A4A; cursor: pointer; }
+.big-btn.secondary { font-size: 15px; color: #4A607A; background: #EBF2F7; }
+.group-title { font-size: 15px; font-weight: 800; color: #E28743; margin: 14px 4px 8px; }
+.thr-title { text-align: center; font-size: 26px; font-weight: 900; color: #2B3A4A; }
+.thr-sub { text-align: center; font-size: 12px; font-weight: 700; color: #7B8E9E; margin: 4px 0 12px; }
+.kv { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-bottom: 1px solid #EBF0F5; font-size: 14px; }
+.kv:last-child { border-bottom: none; }
+.kv span { color: #4A5660; }
+.kv b { color: #2B3A4A; text-align: right; white-space: nowrap; }
+.kv-strong { padding: 12px 0; }
+.dim { padding: 10px 0 12px; border-bottom: 1px solid #EBF0F5; }
+.dim:last-child { border-bottom: none; }
+.dim-head { display: flex; align-items: center; gap: 8px; }
+.dim-name { flex: 1; font-size: 14px; font-weight: 800; color: #2B3A4A; }
+.dim-nom { font-size: 20px; font-weight: 700; color: #2B3A4A; }
+.dim-dev { font-size: 12px; font-weight: 700; color: #E28743; line-height: 1.3; min-width: 46px; text-align: right; }
+.dim-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; margin-top: 6px; font-size: 16px; color: #2B3A4A; }
+.dim-grid div:nth-child(2) { text-align: center; }
+.dim-grid div:nth-child(3) { text-align: right; }
+.dim-grid small { display: block; font-size: 11px; color: #8FA0AF; }
+.dim-note { font-size: 11px; color: #9AA9B6; margin-top: 4px; }
+.gcode { background: #1E2A36; color: #D7F5C7; border-radius: 14px; padding: 14px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 15px; line-height: 1.6; overflow-x: auto; white-space: pre; margin: 6px 0 12px; }
+.g76-info { margin-top: 10px; }
 
 .app-header { background: #fff; padding: 14px 16px; border-radius: 24px; box-shadow: 0 4px 20px rgba(160,180,200,.12); display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border: 1px solid #DCE3EB; gap: 10px; }
 .logo-text { font-size: 19px; font-weight: 800; color: #2B3A4A; }
@@ -384,10 +420,10 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.7';
+const APP_VERSION = '1.8';
 const APP_DATE = '31.10.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
-const viewHtml = () => (gateView() || views[ui.view]()) + footerHtml();
+const viewHtml = () => tabHtml() + footerHtml() + navHtml();
 
 /* ===================== ПОЛЬЗОВАТЕЛЬ ===================== */
 function getUser() {
@@ -823,6 +859,7 @@ const REASONS = ['Износ', 'Поломка', 'Смена партии', 'П�
 const Actions = {
   open(d) { ui.mid = d.id; ui.view = 'machine'; render(); },
   back() {
+    if (ui.tab === 'threads') return thrBack();
     if (ui.view === 'machine') ui.view = 'list';
     else if (ui.view === 'day') ui.view = 'calendar';
     else ui.view = 'machine';
@@ -983,6 +1020,510 @@ document.addEventListener('change', e => {
 });
 document.addEventListener('input', e => {
   if (BAR_FIELDS[e.target.id]) barLiveUpdate(e.target);
+});
+
+/* =====================================================================
+   РЕЗЬБЫ: метрическая резьба
+   Данные: ГОСТ 16093-2004 (ИСО 965-1) — допуски и основные отклонения,
+           ГОСТ 8724-2002 (ИСО 261) — диаметры и шаги,
+           ГОСТ 24705-2004 (ИСО 724) — номинальные размеры профиля.
+   Все допуски в таблицах ниже — в микрометрах, как в ГОСТ.
+   ===================================================================== */
+const THR = (() => {
+  const parseRows = txt => {
+    const o = {};
+    txt.trim().split('\n').forEach(line => {
+      const [p, vals] = line.trim().split(':');
+      o[+p] = vals.split(',').map(v => (v === '-' ? null : +v));
+    });
+    return o;
+  };
+  // Таблица 3: Td наружного диаметра наружной резьбы, степени 4, 6, 8
+  const TD = parseRows(`
+    0.2:36,56,-
+    0.25:42,67,-
+    0.3:48,75,-
+    0.35:53,85,-
+    0.4:60,95,-
+    0.45:63,100,-
+    0.5:67,106,-
+    0.6:80,125,-
+    0.7:90,140,-
+    0.75:90,140,-
+    0.8:95,150,236
+    1:112,180,280
+    1.25:132,212,335
+    1.5:150,236,375
+    1.75:170,265,425
+    2:180,280,450
+    2.5:212,335,530
+    3:236,375,600
+    3.5:265,425,670
+    4:300,475,750
+    4.5:315,500,800
+    5:335,530,850
+    5.5:355,560,900
+    6:375,600,950
+    8:450,710,1180`);
+  // Таблица 4: TD1 внутреннего диаметра внутренней резьбы, степени 4..8
+  const TD1 = parseRows(`
+    0.2:38,48,60,-,-
+    0.25:45,56,71,-,-
+    0.3:53,67,85,-,-
+    0.35:63,80,100,-,-
+    0.4:71,90,112,-,-
+    0.45:80,100,125,-,-
+    0.5:90,112,140,180,-
+    0.6:100,125,160,200,-
+    0.7:112,140,180,224,-
+    0.75:118,150,190,236,-
+    0.8:125,160,200,250,315
+    1:150,190,236,300,375
+    1.25:170,212,265,335,425
+    1.5:190,236,300,375,475
+    1.75:212,265,335,425,530
+    2:236,300,375,475,600
+    2.5:280,355,450,560,710
+    3:315,400,500,630,800
+    3.5:355,450,560,710,900
+    4:375,475,600,750,950
+    4.5:425,530,670,850,1060
+    5:450,560,710,900,1120
+    5.5:475,600,750,950,1180
+    6:500,630,800,1000,1250
+    8:630,800,1000,1250,1600`);
+  // Таблица 7: основные отклонения. EI для G (+), es для e, f, g (−). H и h = 0
+  const FD = parseRows(`
+    0.2:17,-,-32,-17
+    0.25:18,-,-33,-18
+    0.3:18,-,-33,-18
+    0.35:19,-,-34,-19
+    0.4:19,-,-34,-19
+    0.45:20,-,-35,-20
+    0.5:20,-50,-36,-20
+    0.6:21,-53,-36,-21
+    0.7:22,-56,-38,-22
+    0.75:22,-56,-38,-22
+    0.8:24,-60,-38,-24
+    1:26,-60,-40,-26
+    1.25:28,-63,-42,-28
+    1.5:32,-67,-45,-32
+    1.75:34,-71,-48,-34
+    2:38,-71,-52,-38
+    2.5:42,-80,-58,-42
+    3:48,-85,-63,-48
+    3.5:53,-90,-70,-53
+    4:60,-95,-75,-60
+    4.5:63,-100,-80,-63
+    5:71,-106,-85,-71
+    5.5:75,-112,-90,-75
+    6:80,-118,-95,-80
+    8:100,-140,-118,-100`);
+  // Таблица 5: Td2 среднего диаметра наружной резьбы, степени 3..9, по интервалам диаметров
+  // Таблица 6: TD2 среднего диаметра внутренней резьбы, степени 4..8
+  const IV = [
+    { lo: 0.99, hi: 1.4,
+      td2: parseRows(`0.2:24,30,38,48,60,75,-
+        0.25:26,34,42,53,67,85,-
+        0.3:28,36,45,56,71,90,-`),
+      TD2: parseRows(`0.2:40,50,63,-,-
+        0.25:45,56,71,-,-
+        0.3:48,60,75,-,-`) },
+    { lo: 1.4, hi: 2.8,
+      td2: parseRows(`0.2:25,32,40,50,63,80,-
+        0.25:28,36,45,56,71,90,-
+        0.35:32,40,50,63,80,100,-
+        0.4:34,42,53,67,85,106,-
+        0.45:36,45,56,71,90,112,-`),
+      TD2: parseRows(`0.2:42,53,67,-,-
+        0.25:48,60,75,-,-
+        0.35:53,67,85,-,-
+        0.4:56,71,90,-,-
+        0.45:60,75,95,-,-`) },
+    { lo: 2.8, hi: 5.6,
+      td2: parseRows(`0.25:28,36,45,56,71,-,-
+        0.35:34,42,53,67,85,106,-
+        0.5:38,48,60,75,95,118,-
+        0.6:42,53,67,85,106,132,-
+        0.7:45,56,71,90,112,140,-
+        0.75:45,56,71,90,112,140,-
+        0.8:48,60,75,95,118,150,190`),
+      TD2: parseRows(`0.25:48,60,75,-,-
+        0.35:56,71,90,-,-
+        0.5:63,80,100,125,-
+        0.6:71,90,112,140,-
+        0.7:75,95,118,150,-
+        0.75:75,95,118,150,-
+        0.8:80,100,125,160,200`) },
+    { lo: 5.6, hi: 11.2,
+      td2: parseRows(`0.25:32,40,50,63,80,-,-
+        0.35:36,45,56,71,90,-,-
+        0.5:42,53,67,85,106,132,-
+        0.75:50,63,80,100,125,160,-
+        1:56,71,90,112,140,180,224
+        1.25:60,75,95,118,150,190,236
+        1.5:67,85,106,132,170,212,265`),
+      TD2: parseRows(`0.25:53,67,85,-,-
+        0.35:60,75,95,-,-
+        0.5:71,90,112,140,-
+        0.75:85,106,132,170,-
+        1:95,118,150,190,236
+        1.25:100,125,160,200,250
+        1.5:112,140,180,224,280`) },
+    { lo: 11.2, hi: 22.4,
+      td2: parseRows(`0.35:38,48,60,75,95,-,-
+        0.5:45,56,71,90,112,140,-
+        0.75:53,67,85,106,132,170,-
+        1:60,75,95,118,150,190,236
+        1.25:67,85,106,132,170,212,265
+        1.5:71,90,112,140,180,224,280
+        1.75:75,95,118,150,190,236,300
+        2:80,100,125,160,200,250,315
+        2.5:85,106,132,170,212,265,335`),
+      TD2: parseRows(`0.35:63,80,100,-,-
+        0.5:75,95,118,150,-
+        0.75:90,112,140,180,-
+        1:100,125,160,200,250
+        1.25:112,140,180,224,280
+        1.5:118,150,190,236,300
+        1.75:125,160,200,250,315
+        2:132,170,212,265,335
+        2.5:140,180,224,280,355`) },
+    { lo: 22.4, hi: 45,
+      td2: parseRows(`0.5:48,60,75,95,118,-,-
+        0.75:56,71,90,112,140,180,-
+        1:63,80,100,125,160,200,250
+        1.5:75,95,118,150,190,236,300
+        2:85,106,132,170,212,265,335
+        3:100,125,160,200,250,315,400
+        3.5:106,132,170,212,265,335,425
+        4:112,140,180,224,280,355,450
+        4.5:118,150,190,236,300,375,475`),
+      TD2: parseRows(`0.5:80,100,125,-,-
+        0.75:95,118,150,190,-
+        1:106,132,170,212,265
+        1.5:125,160,200,250,315
+        2:140,180,224,280,355
+        3:170,212,265,335,425
+        3.5:180,224,280,355,450
+        4:190,236,300,375,475
+        4.5:200,250,315,400,500`) },
+    { lo: 45, hi: 90,
+      td2: parseRows(`0.5:50,63,80,100,125,-,-
+        0.75:60,75,95,118,150,-,-
+        1:71,90,112,140,180,224,280
+        1.5:80,100,125,160,200,250,315
+        2:90,112,140,180,224,280,355
+        3:106,132,170,212,265,335,425
+        4:118,150,190,236,300,375,475
+        5:125,160,200,250,315,400,500
+        5.5:132,170,212,265,335,425,530
+        6:140,180,224,280,355,450,560`),
+      TD2: parseRows(`0.5:85,106,132,-,-
+        0.75:100,125,160,-,-
+        1:118,150,190,236,300
+        1.5:132,170,212,265,335
+        2:150,190,236,300,375
+        3:180,224,280,355,450
+        4:200,250,315,400,500
+        5:212,265,335,425,530
+        5.5:224,280,355,450,560
+        6:236,300,375,475,600`) }
+  ];
+  // ГОСТ 8724-2002: диаметр : крупный шаг : мелкие шаги
+  const G8724 = `1:0.25:0.2|1.1:0.25:0.2|1.2:0.25:0.2|1.4:0.3:0.2|1.6:0.35:0.2|1.8:0.35:0.2|2:0.4:0.25|2.2:0.45:0.25|2.5:0.45:0.35|3:0.5:0.35|3.5:0.6:0.35|4:0.7:0.5|4.5:0.75:0.5|5:0.8:0.5|5.5:-:0.5|6:1:0.75,0.5|7:1:0.75,0.5|8:1.25:1,0.75,0.5|9:1.25:1,0.75,0.5|10:1.5:1.25,1,0.75,0.5|11:1.5:1,0.75,0.5|12:1.75:1.5,1.25,1,0.75,0.5|14:2:1.5,1.25,1,0.75,0.5|15:-:1.5,1|16:2:1.5,1,0.75,0.5|17:-:1.5,1|18:2.5:2,1.5,1,0.75,0.5|20:2.5:2,1.5,1,0.75,0.5|22:2.5:2,1.5,1,0.75,0.5|24:3:2,1.5,1,0.75|25:-:2,1.5,1|26:-:1.5|27:3:2,1.5,1,0.75|28:-:2,1.5,1|30:3.5:3,2,1.5,1,0.75|32:-:2,1.5|33:3.5:3,2,1.5,1,0.75|35:-:1.5|36:4:3,2,1.5,1|38:-:1.5|39:4:3,2,1.5,1|40:-:3,2,1.5|42:4.5:4,3,2,1.5|45:4.5:4,3,2,1.5`
+    .split('|').map(s => { const [d, c, f] = s.split(':'); return { d: +d, c: c === '-' ? null : +c, f: f.split(',').map(Number) }; });
+  const EXTRA = [6.5, 7.5, 8.5, 9.5];   // промежуточные размеры (без крупного/мелкого шага по ГОСТ 8724)
+  const DIAMS = [...G8724.map(r => r.d), ...EXTRA].sort((a, b) => a - b);
+
+  const EXT_CLASSES = ['3h4h', '4g', '4h', '5g6g', '5h4h', '5h6h', '6e', '6f', '6g', '6h', '7e6e', '7g6g', '7h6h', '8e', '8g', '9e8e', '9g8g'];
+  const INT_CLASSES = ['4H', '5G', '5H', '6G', '6H', '7G', '7H', '8G', '8H'];
+
+  const interval = d => IV.find(iv => d > iv.lo && d <= iv.hi) || null;
+
+  function pitchGroups(d) {
+    const iv = interval(d);
+    if (!iv) return [];
+    const avail = Object.keys(iv.td2).map(Number);
+    const row = G8724.find(r => r.d === d);
+    const coarse = row && row.c;
+    const fine = row ? row.f : [];
+    let refC = coarse;
+    if (!refC) { const lower = G8724.filter(r => r.d <= d && r.c).pop(); refC = lower ? lower.c : 0; }
+    const has = p => avail.includes(p);
+    const sup = avail.filter(p => p < refC && p !== coarse && !fine.includes(p)).sort((a, b) => b - a);
+    return [
+      { key: 'coarse', title: 'Основной шаг (крупный)', list: coarse && has(coarse) ? [coarse] : [] },
+      { key: 'fine', title: 'Мелкий шаг', list: fine.filter(has) },
+      { key: 'super', title: 'Сверхмелкий шаг', list: sup }
+    ].filter(g => g.list.length);
+  }
+  function pitchType(d, P) {
+    const g = pitchGroups(d).find(g => g.list.includes(P));
+    return g ? g.title : 'Нестандартный шаг';
+  }
+  function parseCls(cls) {
+    const m = /^(\d)([a-hA-H])(?:(\d)([a-hA-H]))?$/.exec(cls);
+    return m ? { g2: +m[1], p2: m[2], gc: +(m[3] || m[1]), pc: m[4] || m[2] } : null;
+  }
+
+  /* Расчёт предельных размеров. Возвращает { rows, ... } или { error } */
+  function calc(kind, d, P, cls) {
+    const iv = interval(d), c = parseCls(cls);
+    if (!iv || !c) return { error: 'Нет данных для этого размера' };
+    const H = 0.8660254038 * P;
+    if (kind === 'ext') {
+      const fd = FD[P], tdRow = TD[P], td2Row = iv.td2[P];
+      if (!fd || !tdRow || !td2Row) return { error: 'Шаг отсутствует в ГОСТ 16093 для этого диаметра' };
+      const dev = pos => (pos === 'h' ? 0 : ({ e: fd[1], f: fd[2], g: fd[3] })[pos]);
+      const es2 = dev(c.p2), esc_ = dev(c.pc);
+      const Td = tdRow[{ 4: 0, 6: 1, 8: 2 }[c.gc]];
+      const Td2 = td2Row[c.g2 - 3];
+      if (es2 == null || esc_ == null || Td == null || Td2 == null) return { error: 'Поле допуска не предусмотрено ГОСТ для этого шага' };
+      const es = es2 / 1000, esD = esc_ / 1000, td = Td / 1000, td2 = Td2 / 1000;
+      const d2 = d - 0.6495190528 * P, d1 = d - 1.0825317547 * P, d3 = d - 1.2268693210 * P;
+      const d2max = d2 + es, d2min = d2max - td2;
+      return {
+        kind, d, P, cls, H, depth: (d - d3) / 2, es: es2, Td, Td2,
+        rows: [
+          { key: 'd', name: 'd - Наружный диаметр', nom: d, max: d + esD, min: d + esD - td },
+          { key: 'd2', name: 'd2 - Средний диаметр', nom: d2, max: d2max, min: d2min },
+          { key: 'd1', name: 'd1 - Внутренний диаметр', nom: d1, max: d1 + es, min: d1 + 2 * es, note: 'справочно, ГОСТ не нормирует' },
+          { key: 'd3', name: 'd3 - Диаметр по впадине резьбы (внутренний)', nom: d3,
+            max: d3 + es + td2 / 3 + 0.09075 * P, min: d2min - 0.6160254038 * P,
+            note: 'min — по радиусу впадины 0,125P; max — справочно' }
+        ]
+      };
+    }
+    const fd = FD[P], td1Row = TD1[P], TD2row = iv.TD2[P];
+    if (!fd || !td1Row || !TD2row) return { error: 'Шаг отсутствует в ГОСТ 16093 для этого диаметра' };
+    const EIv = pos => (pos === 'H' ? 0 : pos === 'G' ? fd[0] : null);
+    const EI2 = EIv(c.p2), EIc = EIv(c.pc);
+    const TD1v = td1Row[c.gc - 4], TD2v = TD2row[c.g2 - 4];
+    if (EI2 == null || EIc == null || TD1v == null || TD2v == null) return { error: 'Поле допуска не предусмотрено ГОСТ для этого шага' };
+    const ei = EI2 / 1000, eic = EIc / 1000;
+    const D2 = d - 0.6495190528 * P, D1 = d - 1.0825317547 * P;
+    const D2min = D2 + ei, D2max = D2min + TD2v / 1000;
+    return {
+      kind, d, P, cls, H, depth: 0.5412658774 * P, EI: EI2, TD1: TD1v, TD2: TD2v, drill: d - P,
+      rows: [
+        { key: 'D1', name: 'D1 - Внутренний диаметр', nom: D1, min: D1 + eic, max: D1 + eic + TD1v / 1000 },
+        { key: 'drill' },
+        { key: 'D2', name: 'D2 - Средний диаметр', nom: D2, min: D2min, max: D2max },
+        { key: 'D', name: 'D - Наружный диаметр', nom: d, min: d + ei, max: D2max + 11 / 12 * H, note: 'max — справочно, ГОСТ не нормирует' }
+      ]
+    };
+  }
+  const classes = (kind, d, P) => (kind === 'ext' ? EXT_CLASSES : INT_CLASSES).filter(cl => !calc(kind, d, P, cl).error);
+  return { DIAMS, G8724, IV, TD, TD1, FD, interval, pitchGroups, pitchType, calc, classes };
+})();
+
+/* ---------- форматирование ---------- */
+const f3 = v => { let r = Math.round(v * 1000 + (v >= 0 ? 1e-6 : -1e-6)) / 1000; if (Object.is(r, -0)) r = 0; return String(+r.toFixed(3)); };
+const fDev = v => { const r = +f3(v); return r === 0 ? '0' : (r > 0 ? '+' : '') + r; };
+const fP = v => String(+(+v).toFixed(3));
+const thrName = (d, P, cls) => `M${fP(d)} x ${fP(P)}${cls ? ' - ' + cls : ''}`;
+const withDot = v => { const s = String(v).trim().replace(',', '.'); return s === '' ? '' : (s.includes('.') ? s : s + '.0'); };
+
+/* ---------- шаблон G76 (Fanuc, двухблочный формат) ---------- */
+const G76_DEFAULT = { m: 3, r: 0, a: 60, qmin: 50, rf: 0.02, q1: 180, xd: 2 };
+function g76Tpl() {
+  let t = {};
+  try { t = JSON.parse(localStorage.getItem('sc_g76') || '{}') || {}; } catch (e) {}
+  return Object.assign({}, G76_DEFAULT, t);
+}
+function g76Save(t) { try { localStorage.setItem('sc_g76', JSON.stringify(t)); } catch (e) {} }
+function g76Code(res, z) {
+  const t = g76Tpl();
+  const ext = res.kind === 'ext';
+  const X = ext ? res.d - 1.2268693210 * res.P : res.d;          // наружная: d3 номинальный; внутренняя: D (дно резьбы)
+  const h = Math.round(res.depth * 1000);                           // высота профиля, мкм
+  const cap = Math.max(10, Math.round(h / 3 / 10) * 10);           // первый проход не больше 1/3 высоты профиля
+  const q = Math.min(Math.round(num(t.q1)), cap);
+  const p2 = n => String(Math.max(0, Math.min(99, Math.round(num(n))))).padStart(2, '0');
+  const line1 = `G76P${p2(t.m)}${p2(t.r)}${p2(t.a)}Q${Math.round(num(t.qmin))}R${withDot(fP(num(t.rf)))};`;
+  const line2 = `G76X${X.toFixed(Math.max(0, Math.min(3, Math.round(num(t.xd)))))}Z${withDot(z)}P${h}Q${q}F${withDot(fP(res.P))};`;
+  return { text: line1 + '\n' + line2, X, h, q, qCapped: q < Math.round(num(t.q1)), t };
+}
+
+/* ---------- экраны раздела «Резьбы» ---------- */
+ui.tab = 'machines';
+ui.thr = { step: 'type', kind: null, d: null, P: null, cls: null, z: '', tpl: false };
+const KIND_NAME = { ext: 'Наружная резьба', int: 'Внутренняя резьба' };
+
+const NUT_SVG = `<svg viewBox="0 0 120 100" width="120" height="100"><polygon points="33,8 87,8 113,50 87,92 33,92 7,50" fill="none" stroke="#2B3A4A" stroke-width="4" stroke-linejoin="round"/><circle cx="60" cy="50" r="24" fill="none" stroke="#2B3A4A" stroke-width="4"/><circle cx="60" cy="50" r="16" fill="none" stroke="#E28743" stroke-width="3" stroke-dasharray="5 4"/></svg>`;
+const BOLT_SVG = `<svg viewBox="0 0 170 90" width="170" height="90"><rect x="6" y="10" width="38" height="70" rx="6" fill="none" stroke="#2B3A4A" stroke-width="4"/><rect x="44" y="27" width="118" height="36" rx="4" fill="none" stroke="#2B3A4A" stroke-width="4"/>${Array.from({ length: 10 }, (_, i) => `<line x1="${70 + i * 9}" y1="27" x2="${64 + i * 9}" y2="63" stroke="#E28743" stroke-width="3"/>`).join('')}</svg>`;
+
+function thrHeader(title, sub) { return header(title, sub, ui.thr.step !== 'type'); }
+
+function viewThreads() {
+  const s = ui.thr;
+  if (s.step === 'type') return header('Тип резьбы', 'ГОСТ 24705-2004 / ISO 965 · метрическая', false) +
+    `<div class="kind-card" data-act="thrKind" data-k="int">${NUT_SVG}<div class="kind-lbl">Внутренняя резьба</div></div>
+     <div class="kind-card" data-act="thrKind" data-k="ext">${BOLT_SVG}<div class="kind-lbl">Наружная резьба</div></div>`;
+
+  if (s.step === 'dia') return thrHeader('Выберите диаметр', KIND_NAME[s.kind]) +
+    THR.DIAMS.map(d => `<div class="big-btn" data-act="thrDia" data-d="${d}">M ${fP(d)}</div>`).join('') +
+    `<div class="big-btn secondary" data-act="thrCustom">Другой диаметр…</div>`;
+
+  if (s.step === 'pitch') {
+    const groups = THR.pitchGroups(s.d);
+    return thrHeader('Выберите шаг', KIND_NAME[s.kind] + ' · M' + fP(s.d)) +
+      (groups.length ? groups.map(g => `<div class="group-title">${g.title}</div>` +
+        g.list.map(P => `<div class="big-btn" data-act="thrPitch" data-p="${P}">M ${fP(s.d)} x ${fP(P)}</div>`).join('')).join('')
+        : '<div class="ui-card"><div class="empty">Для этого диаметра в ГОСТ 16093 нет данных (поддерживается 1–90 мм).</div></div>');
+  }
+
+  if (s.step === 'class') {
+    const list = THR.classes(s.kind, s.d, s.P);
+    return thrHeader('Выберите допуск', KIND_NAME[s.kind]) +
+      (list.length ? list.map(cl => `<div class="big-btn" data-act="thrCls" data-c="${cl}">${thrName(s.d, s.P, cl)}</div>`).join('')
+        : '<div class="ui-card"><div class="empty">Для этого шага нет полей допуска в ГОСТ 16093.</div></div>');
+  }
+
+  // информация о резьбе
+  const res = THR.calc(s.kind, s.d, s.P, s.cls);
+  if (res.error) return thrHeader('Информация о резьбе', '') + `<div class="ui-card"><div class="empty">${esc(res.error)}</div></div>`;
+  const ext = s.kind === 'ext';
+  const kv = (a, b) => `<div class="kv"><span>${a}</span><b>${b}</b></div>`;
+  const dimRow = r => {
+    if (r.key === 'drill') return `<div class="kv kv-strong"><span>Диаметр отверстия под резьбу</span><b>${f3(res.drill)}</b></div>`;
+    const devs = [r.max - r.nom, r.min - r.nom].filter(v => Math.abs(v) >= 0.0005);
+    return `<div class="dim">
+      <div class="dim-head"><span class="dim-name">${r.name}</span><span class="dim-nom">${f3(r.nom)}</span>
+        <span class="dim-dev">${devs.map(fDev).join('<br>')}</span></div>
+      <div class="dim-grid"><div><small>мин</small>${f3(r.min)}</div><div><small>сред.</small>${f3((r.min + r.max) / 2)}</div><div><small>макс</small>${f3(r.max)}</div></div>
+      ${r.note ? `<div class="dim-note">${r.note}</div>` : ''}
+    </div>`;
+  };
+  return thrHeader('Информация о резьбе', thrName(s.d, s.P, s.cls)) +
+    `<div class="ui-card">
+      <div class="thr-title">${thrName(s.d, s.P, s.cls)}</div>
+      <div class="thr-sub">M - Метрическая цилиндрическая ${ext ? 'наружная' : 'внутренняя'} резьба<br>${THR.pitchType(s.d, s.P)}</div>
+      ${kv('Тип резьбы', KIND_NAME[s.kind])}
+      ${kv('Диаметр (номинальный)', fP(s.d))}
+      ${kv('Шаг', fP(s.P))}
+      ${kv('Глубина резьбы', f3(res.depth))}
+      ${kv('Класс допуска', s.cls)}
+      ${kv('Тип шага', THR.pitchType(s.d, s.P))}
+    </div>
+    <div class="ui-card">${res.rows.map(dimRow).join('')}</div>
+    ${g76Card(res)}
+    <div class="ui-card">
+      <div class="section-title">Профиль резьбы</div>
+      ${kv('H - Высота исходного треугольника', f3(res.H))}
+      ${kv('H1 - Рабочая высота профиля (5/8 H)', f3(0.5412658774 * s.P))}
+      ${kv(ext ? 'h3 - Высота профиля болта' : 'Глубина резьбы гайки', f3(res.depth))}
+      ${kv('R - Радиус впадины, не менее (0,125P)', f3(0.125 * s.P))}
+      ${kv(ext ? 'es - Основное отклонение, мкм' : 'EI - Основное отклонение, мкм', ext ? res.es : res.EI)}
+      ${ext ? kv('Td / Td2, мкм', res.Td + ' / ' + res.Td2) : kv('TD1 / TD2, мкм', res.TD1 + ' / ' + res.TD2)}
+      <div class="muted mt">Допуски — ГОСТ 16093-2004 (ИСО 965-1), размеры — ГОСТ 24705-2004.</div>
+    </div>`;
+}
+
+function g76Card(res) {
+  const s = ui.thr, g = g76Code(res, s.z), t = g.t;
+  const inp = (id, label, val) => `<div class="input-group"><label>${label}</label><input type="text" inputmode="decimal" id="${id}" value="${esc(val)}"></div>`;
+  return `<div class="ui-card">
+    <div class="section-title">Код G76 (Fanuc)</div>
+    ${inp('g76-z', 'Z — конец резьбы (впишите сами, можно оставить пустым)', s.z)}
+    <pre class="gcode" id="g76-code">${esc(g.text)}</pre>
+    <button class="action-button" data-act="g76Copy" id="g76-copy">Скопировать код</button>
+    <div class="g76-info" id="g76-info">${g76Info(res, g)}</div>
+    <button class="action-button secondary mt" data-act="g76Tpl">${s.tpl ? 'Скрыть шаблон' : '⚙️ Шаблон G76 (P, Q, R первой строки)'}</button>
+    ${s.tpl ? `<div class="mt">
+      <div class="two-col">${inp('g76-m', 'Чистовых проходов (m)', t.m)}${inp('g76-r', 'Сбег/фаска (r, ×0,1 шага)', t.r)}</div>
+      <div class="two-col">${inp('g76-a', 'Угол профиля (a)', t.a)}${inp('g76-qmin', 'Мин. съём Q, мкм', t.qmin)}</div>
+      <div class="two-col">${inp('g76-rf', 'Чистовой припуск R, мм', t.rf)}${inp('g76-q1', 'Первый проход Q, мкм', t.q1)}</div>
+      ${inp('g76-xd', 'Знаков после запятой в X', t.xd)}
+      <button class="action-button secondary" data-act="g76Reset">Вернуть шаблон по умолчанию</button>
+      <div class="muted mt">Шаблон сохраняется на этом телефоне и применяется ко всем резьбам.</div>
+    </div>` : ''}
+  </div>`;
+}
+function g76Info(res, g) {
+  const ext = res.kind === 'ext';
+  return `<div class="kv"><span>X — ${ext ? 'диаметр по впадине d3 (номинал)' : 'диаметр по дну резьбы D (номинал)'}</span><b>${g.X.toFixed(3)}</b></div>
+    <div class="kv"><span>P — высота профиля, мкм (${ext ? '0,6134' : '0,5413'}·шаг)</span><b>${g.h}</b></div>
+    <div class="kv"><span>Q — первый проход, мкм${g.qCapped ? ' (ограничен 1/3 высоты)' : ''}</span><b>${g.q}</b></div>
+    <div class="kv"><span>F — шаг</span><b>${fP(res.P)}</b></div>`;
+}
+function g76Refresh() {
+  const s = ui.thr, res = THR.calc(s.kind, s.d, s.P, s.cls);
+  if (res.error) return;
+  const g = g76Code(res, s.z);
+  const code = document.getElementById('g76-code'), info = document.getElementById('g76-info');
+  if (code) code.textContent = g.text;
+  if (info) info.innerHTML = g76Info(res, g);
+}
+
+function viewStub(title, sub, text) {
+  return header(title, sub, false) + `<div class="ui-card"><div class="empty" style="padding:30px 10px">🛠 ${text}</div></div>`;
+}
+
+const TABS = [
+  { k: 'machines', ico: '🏭', t: 'Станки' },
+  { k: 'schedule', ico: '📅', t: 'График' },
+  { k: 'tol', ico: '📏', t: 'Допуски' },
+  { k: 'threads', ico: '🔩', t: 'Резьбы' }
+];
+const navHtml = () => `<nav class="tabbar"><div class="tabbar-in">${TABS.map(x =>
+  `<div class="tab ${ui.tab === x.k ? 'active' : ''}" data-act="tab" data-t="${x.k}"><span class="ico">${x.ico}</span>${x.t}</div>`).join('')}</div></nav>`;
+
+function tabHtml() {
+  if (ui.tab === 'threads') return viewThreads();
+  if (ui.tab === 'schedule') return viewStub('График', 'Планирование работы', 'Раздел «График» в разработке — сделаем отдельным этапом.');
+  if (ui.tab === 'tol') return viewStub('Допуски', 'Квалитеты H, h, ГОСТ 25346/25347', 'Таблица допусков по квалитетам (H12, H14 и т.д.) в разработке — следующий этап.');
+  return gateView() || views[ui.view]();
+}
+
+const THR_ORDER = ['type', 'dia', 'pitch', 'class', 'info'];
+function thrBack() {
+  const i = THR_ORDER.indexOf(ui.thr.step);
+  ui.thr.step = THR_ORDER[Math.max(0, i - 1)];
+  render();
+}
+
+function copyText(text, btn) {
+  const done = () => { if (btn) { const o = btn.textContent; btn.textContent = '✅ Скопировано'; setTimeout(() => { btn.textContent = o; }, 1500); } };
+  const fallback = () => {
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { alert(text); }
+    ta.remove();
+  };
+  try { navigator.clipboard.writeText(text).then(done, fallback); } catch (e) { fallback(); }
+}
+
+Object.assign(Actions, {
+  tab(d) { ui.tab = d.t; render(); },
+  thrKind(d) { ui.thr.kind = d.k; ui.thr.step = 'dia'; render(); },
+  thrDia(d) { ui.thr.d = +d.d; ui.thr.step = 'pitch'; render(); },
+  thrCustom() {
+    modal('Свой диаметр', [{ k: 'd', label: 'Номинальный диаметр, мм (1–90)', type: 'number', value: '' }], o => {
+      const v = num(o.d);
+      if (!(v >= 1 && v <= 90)) { alert('Диаметр должен быть от 1 до 90 мм'); return false; }
+      ui.thr.d = v; ui.thr.step = 'pitch'; render();
+    });
+  },
+  thrPitch(d) { ui.thr.P = +d.p; ui.thr.step = 'class'; render(); },
+  thrCls(d) { ui.thr.cls = d.c; ui.thr.step = 'info'; render(); },
+  g76Copy(d) {
+    const s = ui.thr, res = THR.calc(s.kind, s.d, s.P, s.cls);
+    if (!res.error) copyText(g76Code(res, s.z).text, document.getElementById('g76-copy'));
+  },
+  g76Tpl() { ui.thr.tpl = !ui.thr.tpl; rerender(); },
+  g76Reset() { g76Save({}); rerender(); }
+});
+
+const G76_KEYS = { 'g76-m': 'm', 'g76-r': 'r', 'g76-a': 'a', 'g76-qmin': 'qmin', 'g76-rf': 'rf', 'g76-q1': 'q1', 'g76-xd': 'xd' };
+document.addEventListener('input', e => {
+  const id = e.target.id;
+  if (id === 'g76-z') { ui.thr.z = e.target.value; g76Refresh(); }
+  else if (G76_KEYS[id]) {
+    const t = g76Tpl(); t[G76_KEYS[id]] = e.target.value; g76Save(t); g76Refresh();
+  }
 });
 
 /* ===================== СТАРТ ===================== */
