@@ -75,6 +75,30 @@ table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .cov-low { background: #F8C1BB; color: #8E2A1F; }
 .mini-btn:disabled { opacity: .35; }
 
+/* явка */
+.rs-c { position: relative; }
+.rs-c.att-ok::after, .rs-c.att-late::after, .rs-c.att-miss::after, .rs-c.att-extra::after,
+.lg.att-ok::after, .lg.att-late::after, .lg.att-miss::after, .lg.att-extra::after { content: ''; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px; border-radius: 50%; }
+.lg.att-ok, .lg.att-late, .lg.att-miss, .lg.att-extra { position: relative; }
+.att-ok::after { background: #2EA043; }
+.att-late::after { background: #E28743; }
+.att-miss::after { background: #D93025; }
+.att-extra::after { background: #4A90E2; }
+.rs-c.att-extra { color: #4A90E2; font-style: italic; }
+.att-status { background: #F4F7F9; border-radius: 14px; padding: 12px; font-size: 14px; }
+.att-status.on { background: #EAF7E6; }
+.att-warn { color: #B4561B; font-size: 13px; margin-top: 4px; font-weight: 700; }
+.att-row { cursor: pointer; align-items: flex-start; }
+.att-line { font-size: 13px; margin-top: 4px; color: #2B3A4A; }
+.att-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 6px; background: #EEF2F6; color: #4A5660; margin: 3px 4px 0 0; }
+.att-tag.late { background: #FDF1E7; color: #B4561B; }
+.att-tag.miss { background: #FBE3E1; color: #A3271D; }
+.link-btn { color: #4A90E2; font-weight: 700; margin-left: 6px; cursor: pointer; }
+.qr-box { display: flex; flex-direction: column; align-items: center; }
+.qr-img { width: 100%; max-width: 320px; image-rendering: pixelated; border: 12px solid #fff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.08); }
+.qr-cap { font-weight: 800; color: #2B3A4A; margin-top: 8px; }
+.code-txt { font-family: ui-monospace, Menlo, monospace; user-select: all; }
+
 /* допуски */
 .seg { display: flex; background: #EEF2F6; border-radius: 14px; padding: 3px; margin-bottom: 8px; }
 .seg:last-child { margin-bottom: 0; }
@@ -253,7 +277,7 @@ function seedData() {
 
 /* db.staff = [{id, name}] — сотрудники графика (порядок = порядок в списке)
    db.roster = { 'ГГГГ-ММ-ДД': { idСотрудника: 'd' | 'n' } } — нет записи = выходной */
-function normDb(d) { d = d || {}; d.machines = d.machines || []; d.staff = d.staff || []; d.roster = d.roster || {}; return d; }
+function normDb(d) { d = d || {}; d.machines = d.machines || []; d.staff = d.staff || []; d.roster = d.roster || {}; d.att = d.att || {}; return d; }
 let db = normDb(Store.load() || seedData());
 /* ===================== ОБЛАКО (Supabase) =====================
    Как это работает: весь остальной код по-прежнему меняет объект db и
@@ -262,8 +286,9 @@ let db = normDb(Store.load() || seedData());
    (и при возврате в приложение) подтягиваются изменения других людей. */
 const Sync = { enabled: CLOUD, ready: false, busy: false, again: false, dirty: false, queued: false,
   online: true, error: null, snap: { m: {}, e: {}, c: {}, s: {}, r: {} }, loading: {}, t: null, started: false,
-  noRoster: false };   // noRoster = в базе ещё нет таблиц графика (не выполнен setup2.sql)
-const SYNC_KEYS = ['m', 'e', 'c', 's', 'r'];
+  noRoster: false,     // noRoster = в базе ещё нет таблиц графика (не выполнен setup2.sql)
+  noAtt: false };      // noAtt = в базе ещё нет таблицы явки (не выполнен setup3.sql)
+const SYNC_KEYS = ['m', 'e', 'c', 's', 'r', 'a'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -289,8 +314,14 @@ async function restAll(path) {            // сервер отдаёт макс�
 
 /* db -> строки таблиц */
 function toRows(d) {
-  const rows = { m: {}, e: {}, c: {}, s: {}, r: {} };
-  (d.staff || []).forEach((p, i) => { rows.s[p.id] = { id: p.id, name: p.name, sort: i }; });
+  const rows = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {} };
+  const withAtt = !Sync.noAtt;                     // колонка tg_id и таблица явки есть в базе
+  (d.staff || []).forEach((p, i) => {
+    rows.s[p.id] = { id: p.id, name: p.name, sort: i };
+    if (withAtt) rows.s[p.id].tg_id = p.tg_id || null;
+  });
+  if (withAtt) for (const a of Object.values(d.att || {}))
+    rows.a[a.id] = { id: a.id, staff_id: a.staff_id, day: a.day, shift: a.shift, in_ts: a.in_ts, out_ts: a.out_ts || null, by_admin: !!a.by_admin };
   for (const [day, map] of Object.entries(d.roster || {}))
     for (const [sid, sh] of Object.entries(map)) { const id = day + '_' + sid; rows.r[id] = { id, staff_id: sid, day, shift: sh }; }
   for (const m of d.machines) {
@@ -305,7 +336,7 @@ function toRows(d) {
   return rows;
 }
 function serialize(rows) {
-  const s = { m: {}, e: {}, c: {}, s: {}, r: {} };
+  const s = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {} };
   for (const k of SYNC_KEYS) for (const id in rows[k]) s[k][id] = JSON.stringify(rows[k][id]);
   return s;
 }
@@ -341,10 +372,14 @@ async function syncPush() {
       if (ce.length) await up('shift_entries', ce);
       if (cc.length) await up('tool_changes', cc);
       if (cr.length) await up('roster', cr);
+      const A = R && !Sync.noAtt;                             // таблица явки есть в базе
+      const ca = A ? changed('a') : [];
+      if (ca.length) await up('attendance', ca);
       const de = removed('e'), dm = removed('m');
-      const dr = R ? removed('r') : [], ds = R ? removed('s') : [];
+      const dr = R ? removed('r') : [], ds = R ? removed('s') : [], da = A ? removed('a') : [];
       if (de.length) await del('shift_entries', de);
       if (dr.length) await del('roster', dr);
+      if (da.length) await del('attendance', da);
       if (ds.length) await del('staff', ds);
       if (dm.length) await del('machines', dm);
       Sync.snap = ser;
@@ -382,7 +417,7 @@ async function syncPull(first) {
   let ss = [], rs = [];
   try {                                            // таблицы графика (появляются после setup2.sql)
     [ss, rs] = await Promise.all([
-      restAll('staff?select=id,name,sort&order=sort'),
+      restAll('staff?select=*&order=sort'),
       restAll('roster?select=id,staff_id,day,shift&order=id')
     ]);
     Sync.noRoster = false;
@@ -390,6 +425,16 @@ async function syncPull(first) {
     if (/PGRST2|42P01|does not exist|schema cache|^404/.test(e.message)) Sync.noRoster = true;
     else throw e;
   }
+  let as = [];
+  if (!Sync.noRoster) {
+    try {                                          // таблица явки (появляется после setup3.sql)
+      as = await restAll('attendance?select=*&order=id');
+      Sync.noAtt = false;
+    } catch (e) {
+      if (/PGRST2|42P01|does not exist|schema cache|^404/.test(e.message)) Sync.noAtt = true;
+      else throw e;
+    }
+  } else Sync.noAtt = true;
   if (!ms.length && !ss.length && first) {         // сервер пуст: первый админ загружает то, что есть на телефоне
     if (isAdmin()) {
       Sync.ready = true;
@@ -426,13 +471,17 @@ async function syncPull(first) {
   machines.sort((a, b) => String(a.num).localeCompare(String(b.num), 'ru', { numeric: true }));
   const strip = (k, v) => (k === 'drawing' ? undefined : v);
   const before = JSON.stringify(db, strip);
-  let staff = db.staff, roster = db.roster;
+  let staff = db.staff, roster = db.roster, att = db.att;
+  if (!Sync.noAtt) {
+    att = {};
+    for (const a of as) att[a.id] = { id: a.id, staff_id: a.staff_id, day: a.day, shift: a.shift, in_ts: a.in_ts, out_ts: a.out_ts || null, by_admin: !!a.by_admin };
+  }
   if (!Sync.noRoster) {
-    staff = ss.slice().sort((a, b) => a.sort - b.sort).map(r => ({ id: r.id, name: r.name }));
+    staff = ss.slice().sort((a, b) => a.sort - b.sort).map(r => (r.tg_id != null ? { id: r.id, name: r.name, tg_id: r.tg_id } : { id: r.id, name: r.name }));
     roster = {};
     for (const r of rs) (roster[r.day] = roster[r.day] || {})[r.staff_id] = r.shift;
   }
-  db = { machines, staff, roster };
+  db = { machines, staff, roster, att };
   const after = JSON.stringify(db, strip);
   Sync.snap = serialize(toRows(db));
   Store.save(db);
@@ -499,7 +548,7 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.11';
+const APP_VERSION = '1.12';
 const APP_DATE = '31.10.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => tabHtml() + footerHtml() + navHtml();
@@ -1668,7 +1717,10 @@ function staffTotals(sid, days) {
 
 function viewSchedule() {
   if (ui.sched.view === 'staff') return viewStaff();
+  if (ui.sched.view === 'att' && isAdmin()) return viewAtt();
+  if (ui.sched.view === 'qr' && isAdmin()) return viewQr();
   const days = monthDays(ui.sched.month), todayIso = isoDate(new Date());
+  const nowD = new Date(), attStart = attOn() ? attStartDay() : null;
   const monthName = ui.sched.month.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
   const canEdit = schedCanEdit(), editing = canEdit && ui.sched.edit, norm = schedNorm();
   const staff = db.staff;
@@ -1681,7 +1733,9 @@ function viewSchedule() {
       const t = staffTotals(p.id, days);
       return `<tr><td class="rs-name" ${editing ? `data-act="rosterFill" data-sid="${p.id}"` : ''}>${esc(p.name)}<small>☀${t.d} 🌙${t.n} · ${t.all}</small></td>${days.map(x => {
         const v = rosterGet(x.iso, p.id);
-        return `<td class="rs-c ${v || ''} ${x.iso === todayIso ? 'today' : ''}" ${editing ? `data-act="rosterTap" data-day="${x.iso}" data-sid="${p.id}"` : ''}>${v === 'd' ? 'Д' : v === 'n' ? 'Н' : ''}</td>`;
+        const ac = attCellCls(x.iso, p.id, v, attStart, nowD);
+        const fact = !v && ac === 'att-extra' ? attFor(x.iso, p.id) : null;      // вышел вне графика
+        return `<td class="rs-c ${v || ''} ${ac} ${x.iso === todayIso ? 'today' : ''}" ${editing ? `data-act="rosterTap" data-day="${x.iso}" data-sid="${p.id}"` : ''}>${v === 'd' ? 'Д' : v === 'n' ? 'Н' : fact ? (fact.shift === 'd' ? 'д' : 'н') : ''}</td>`;
       }).join('')}</tr>`;
     }).join('');
     const cov = (sh, label) => `<tr class="rs-cov"><td class="rs-name">${label}</td>${days.map(x => {
@@ -1692,7 +1746,7 @@ function viewSchedule() {
       <thead>${head}</thead><tbody>${body}${cov('d', '☀️ На день')}${cov('n', '🌙 На ночь')}</tbody></table></div>`;
   }
   const totals = staff.map(p => { const t = staffTotals(p.id, days); return { p, t }; }).sort((a, b) => b.t.all - a.t.all);
-  return header('График смен', monthName, false) +
+  return header('График смен', monthName, false) + checkinCard() +
     `<div class="ui-card">
       <div class="cal-head"><button class="mini-btn" data-act="schedMonth" data-dir="-1">←</button><b>${esc(monthName)}</b><button class="mini-btn" data-act="schedMonth" data-dir="1">→</button></div>
       <div class="legend"><span class="lg d">Д</span> день ${hh(DAY_START)}–${hh(NIGHT_START)} <span class="lg n">Н</span> ночь ${hh(NIGHT_START)}–${hh(DAY_START)} <span class="lg">&nbsp;</span> выходной</div>
@@ -1700,17 +1754,21 @@ function viewSchedule() {
       ${canEdit ? `<div class="two-col mt">
         <button class="action-button ${editing ? 'orange' : ''}" data-act="schedEdit">${editing ? '✅ Готово' : '✏️ Редактировать'}</button>
         <button class="action-button secondary" data-act="schedStaff">👥 Сотрудники</button></div>
+        ${attOn() ? `<div class="two-col mt"><button class="action-button secondary" data-act="schedAtt">🕒 Явка</button>
+        <button class="action-button secondary" data-act="schedQr">🔳 QR для печати</button></div>` : ''}
         ${editing ? '<div class="muted mt">Тап по клетке: выходной → Д → Н → выходной. Тап по имени — заполнить по шаблону.</div>' : ''}` : ''}
     </div>
     ${staff.length ? grid : `<div class="ui-card"><div class="empty">В графике пока нет сотрудников.${canEdit ? '<br>Нажмите «👥 Сотрудники», чтобы добавить людей.' : ''}</div></div>`}
     ${staff.length ? `<div class="ui-card mt"><div class="section-title">Смен за месяц</div>
-      ${totals.map(({ p, t }) => `<div class="shift-row"><span>👤 ${esc(p.name)}<div class="muted">☀️ ${t.d} · 🌙 ${t.n} · ${t.all * SHIFT_HOURS} ч</div></span><b>${t.all}</b></div>`).join('')}
+      ${totals.map(({ p, t }) => { const f = attStart ? attMonth(p.id, days) : null;
+        return `<div class="shift-row"><span>👤 ${esc(p.name)}<div class="muted">☀️ ${t.d} · 🌙 ${t.n} · ${t.all * SHIFT_HOURS} ч по плану${f ? `<br>по факту: ${f.n} смен · ${fmtNum(f.h, 1)} ч${f.late ? ' · опозданий ' + f.late : ''}` : ''}</div></span><b>${t.all}</b></div>`; }).join('')}
+      ${attStart ? '<div class="legend" style="margin:6px 0"><span class="lg att-ok">&nbsp;</span> отметился <span class="lg att-late">&nbsp;</span> опоздал <span class="lg att-miss">&nbsp;</span> не отметился <span class="lg att-extra">д</span> вышел вне графика</div>' : ''}
       <div class="muted">Внизу сетки — сколько человек на каждой смене: зелёный — ${norm} и больше, жёлтый — ${norm - 1}, красный — меньше.</div></div>` : ''}`;
 }
 
 function viewStaff() {
   const list = db.staff.map((p, i) => `<div class="tool-row">
-      <div><span class="tool-name">${i + 1}. ${esc(p.name)}</span></div>
+      <div><span class="tool-name">${i + 1}. ${esc(p.name)}</span>${attOn() ? `<div class="tool-spec">${p.tg_id != null ? `🔗 Telegram привязан <a class="link-btn" data-act="attUnlink" data-sid="${p.id}">отвязать</a>` : 'Telegram не привязан'}</div>` : ''}</div>
       <div class="row-actions">
         <button class="mini-btn" data-act="staffMove" data-i="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button>
         <button class="mini-btn" data-act="staffMove" data-i="${i}" data-dir="1" ${i === db.staff.length - 1 ? 'disabled' : ''}>↓</button>
@@ -1789,6 +1847,7 @@ Object.assign(Actions, {
     if (!confirm(`Удалить «${p.name}» из графика? Все его отметки во всех месяцах тоже удалятся.`)) return;
     db.staff = db.staff.filter(x => x.id !== p.id);
     for (const iso of Object.keys(db.roster)) rosterSet(iso, p.id, null);
+    for (const [id, a] of Object.entries(db.att)) if (a.staff_id === p.id) delete db.att[id];
     save(); rerender();
   },
   staffMove(d) {
@@ -1802,6 +1861,230 @@ Object.assign(Actions, {
 document.addEventListener('input', e => {
   if (e.target.id === 'sched-norm') { const v = Math.round(num(e.target.value)); if (v > 0) { try { localStorage.setItem('sc_norm', v); } catch (er) {} } }
 });
+
+/* =====================================================================
+   ЯВКА: отметка прихода/ухода по QR-коду
+   Один и тот же QR: первый скан — приход, следующий (в течение 16 ч) — уход.
+   Смена определяется по ближайшему началу смены; плановая смена из графика в приоритете.
+   ===================================================================== */
+const CHECKIN_CODE = 'SWISSCONTROL:CHECKIN';      // текст QR-кода (для iPad с меняющимся кодом поменяем только проверку)
+const LATE_GRACE_MIN = 5;                          // опоздание считается после 5 минут
+const attOn = () => !(Sync.enabled && (Sync.noRoster || Sync.noAtt));
+const myStaff = () => { const id = tgId(); return id ? db.staff.find(s => s.tg_id != null && String(s.tg_id) === String(id)) : null; };
+const shiftStart = (day, t) => { const [y, m, d] = day.split('-').map(Number); return new Date(y, m - 1, d, t === 'n' ? NIGHT_START : DAY_START, 0, 0); };
+const shiftEnd = (day, t) => new Date(shiftStart(day, t).getTime() + SHIFT_HOURS * 3600e3);
+const attId = (day, t, sid) => day + '_' + t + '_' + sid;
+const hm = iso => { const d = new Date(iso); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+const durTxt = ms => { const m = Math.max(0, Math.round(ms / 60000)); return Math.floor(m / 60) + ' ч ' + pad(m % 60) + ' мин'; };
+const lateMin = a => Math.round((new Date(a.in_ts) - shiftStart(a.day, a.shift)) / 60000);
+const earlyMin = a => (a.out_ts ? Math.round((shiftEnd(a.day, a.shift) - new Date(a.out_ts)) / 60000) : 0);
+const shiftTxt = (day, t) => (t === 'n' ? '🌙 ночь ' : '☀️ день ') + day.slice(8) + '.' + day.slice(5, 7);
+
+function openAtt(sid, now) {
+  return Object.values(db.att).find(a => a.staff_id === sid && !a.out_ts && now - new Date(a.in_ts) >= 0 && now - new Date(a.in_ts) < 16 * 3600e3) || null;
+}
+function pickShift(sid, now) {
+  const c = [];
+  for (let k = -1; k <= 1; k++) {
+    const d = new Date(now); d.setDate(d.getDate() + k); const day = isoDate(d);
+    ['d', 'n'].forEach(t => c.push({ day, type: t, diff: Math.abs(now - shiftStart(day, t)), plan: rosterGet(day, sid) === t }));
+  }
+  const planned = c.filter(x => x.plan && x.diff <= 4 * 3600e3).sort((a, b) => a.diff - b.diff)[0];
+  return planned || c.sort((a, b) => a.diff - b.diff)[0];
+}
+/* Отметка: приход или уход. Возвращает { kind: 'in' | 'out' | 'done', rec } */
+function doCheck(sid, now) {
+  const open = openAtt(sid, now);
+  if (open) { open.out_ts = now.toISOString(); save(); return { kind: 'out', rec: open }; }
+  const s = pickShift(sid, now), id = attId(s.day, s.type, sid);
+  if (db.att[id] && db.att[id].out_ts) return { kind: 'done', rec: db.att[id] };
+  db.att[id] = { id, staff_id: sid, day: s.day, shift: s.type, in_ts: now.toISOString(), out_ts: null, by_admin: false };
+  save(); return { kind: 'in', rec: db.att[id] };
+}
+function attFor(iso, sid) { return db.att[attId(iso, 'd', sid)] || db.att[attId(iso, 'n', sid)] || null; }
+function attStartDay() { let m = null; for (const a of Object.values(db.att)) if (!m || a.day < m) m = a.day; return m; }
+/* класс отметки в клетке графика */
+function attCellCls(iso, sid, plan, startDay, now) {
+  if (!startDay) return '';
+  const a = (plan && db.att[attId(iso, plan, sid)]) || attFor(iso, sid);
+  if (a) return plan && a.shift === plan ? (lateMin(a) > LATE_GRACE_MIN ? 'att-late' : 'att-ok') : 'att-extra';
+  if (plan && iso >= startDay && shiftEnd(iso, plan) < now) return 'att-miss';
+  return '';
+}
+function attMonth(sid, days) {
+  let n = 0, ms = 0, late = 0, noOut = 0;
+  days.forEach(x => ['d', 'n'].forEach(t => {
+    const a = db.att[attId(x.iso, t, sid)]; if (!a) return;
+    n++; if (lateMin(a) > LATE_GRACE_MIN) late++;
+    if (a.out_ts) ms += new Date(a.out_ts) - new Date(a.in_ts); else noOut++;
+  }));
+  return { n, h: ms / 3600e3, late, noOut };
+}
+
+function checkinCard() {
+  if (Sync.enabled && Sync.noAtt && !Sync.noRoster) return isAdmin()
+    ? '<div class="ui-card"><div class="warn-box" style="margin:0">📍 Чтобы включить отметку прихода по QR, выполните один раз файл <b>setup3.sql</b> в Supabase (SQL Editor).</div></div>' : '';
+  if (!attOn()) return '';
+  const head = '<div class="section-title">📍 Отметка на работе</div>';
+  if (!tgId()) return `<div class="ui-card">${head}<div class="muted">Отметка по QR работает в приложении Telegram на телефоне.</div></div>`;
+  const me = myStaff();
+  if (!me) return `<div class="ui-card">${head}<div class="muted">Чтобы отмечаться, один раз выберите себя в списке сотрудников графика.</div>
+    <button class="action-button mt" data-act="attLink">Это я — выбрать себя</button></div>`;
+  const now = new Date(), open = openAtt(me.id, now);
+  const today = isoDate(now), plan = rosterGet(today, me.id);
+  const last = Object.values(db.att).filter(a => a.staff_id === me.id && a.out_ts).sort((a, b) => (a.in_ts < b.in_ts ? 1 : -1))[0];
+  const recent = last && now - new Date(last.out_ts) < 12 * 3600e3 ? last : null;
+  let status;
+  if (open) {
+    const l = lateMin(open);
+    status = `<div class="att-status on">🟢 На смене с <b>${hm(open.in_ts)}</b> · ${shiftTxt(open.day, open.shift)}${l > LATE_GRACE_MIN ? `<div class="att-warn">⚠️ опоздание ${l} мин</div>` : ''}</div>`;
+  } else if (recent) {
+    status = `<div class="att-status">✅ Смена ${shiftTxt(recent.day, recent.shift)} закрыта: <b>${hm(recent.in_ts)}–${hm(recent.out_ts)}</b> (${durTxt(new Date(recent.out_ts) - new Date(recent.in_ts))})</div>`;
+  } else status = '<div class="att-status">⚪ Вы ещё не отметились</div>';
+  return `<div class="ui-card">${head}
+    <div class="muted" style="margin-bottom:8px">👤 ${esc(me.name)} · по графику сегодня: ${plan === 'd' ? '☀️ день' : plan === 'n' ? '🌙 ночь' : 'выходной'}</div>
+    ${status}
+    <button class="action-button orange mt" data-act="checkin">📷 ${open ? 'Отметить уход' : 'Отметить приход'} — сканировать QR</button>
+  </div>`;
+}
+
+function viewAtt() {
+  const day = ui.sched.attDay || isoDate(new Date());
+  const now = new Date();
+  const dt = new Date(day + 'T12:00:00');
+  const title = dt.toLocaleString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+  const rows = db.staff.map(p => {
+    const plan = rosterGet(day, p.id);
+    const recs = ['d', 'n'].map(t => db.att[attId(day, t, p.id)]).filter(Boolean);
+    if (!plan && !recs.length) return '';
+    const facts = recs.map(a => {
+      const l = lateMin(a), e = earlyMin(a);
+      return `<div class="att-line">${shiftTxt(a.day, a.shift)}: <b>${hm(a.in_ts)}–${a.out_ts ? hm(a.out_ts) : '…'}</b>${a.out_ts ? ' · ' + durTxt(new Date(a.out_ts) - new Date(a.in_ts)) : ''}
+        ${l > LATE_GRACE_MIN ? `<span class="att-tag late">опоздал ${l} мин</span>` : ''}${a.out_ts && e > LATE_GRACE_MIN ? `<span class="att-tag late">ушёл раньше на ${e} мин</span>` : ''}${!a.out_ts && shiftEnd(a.day, a.shift) < now ? '<span class="att-tag miss">нет ухода</span>' : ''}${a.by_admin ? '<span class="att-tag">исправлено</span>' : ''}</div>`;
+    }).join('');
+    const missing = plan && !recs.some(a => a.shift === plan) && shiftStart(day, plan) < now ? `<span class="att-tag miss">не отметился</span>` : '';
+    return `<div class="shift-row att-row" data-act="attEdit" data-sid="${p.id}"><span>👤 ${esc(p.name)} <span class="muted">· план: ${plan === 'd' ? '☀️ день' : plan === 'n' ? '🌙 ночь' : 'выходной'}</span>${facts || ''}${missing}</span><b>✎</b></div>`;
+  }).join('');
+  const days = monthDays(new Date(dt.getFullYear(), dt.getMonth(), 1));
+  const month = db.staff.map(p => ({ p, m: attMonth(p.id, days) })).filter(x => x.m.n);
+  return header('Явка', 'Отметки по QR · правка вручную', true) +
+    `<div class="ui-card"><div class="cal-head"><button class="mini-btn" data-act="attDay" data-dir="-1">←</button><b>${esc(title)}</b><button class="mini-btn" data-act="attDay" data-dir="1">→</button></div>
+      ${rows || '<div class="empty">В этот день никто не стоит в графике и не отмечался</div>'}
+      <div class="muted">Нажмите на человека, чтобы исправить или добавить отметку (например, если забыл отметить уход).</div></div>
+    <div class="ui-card"><div class="section-title">Итого за ${dt.toLocaleString('ru-RU', { month: 'long' })} по факту</div>
+      ${month.length ? month.map(({ p, m }) => `<div class="shift-row"><span>👤 ${esc(p.name)}<div class="muted">${fmtNum(m.h, 1)} ч${m.late ? ' · опозданий: ' + m.late : ''}${m.noOut ? ' · без отметки ухода: ' + m.noOut : ''}</div></span><b>${m.n}</b></div>`).join('') : '<div class="empty">Отметок пока нет</div>'}
+    </div>`;
+}
+
+function viewQr() {
+  setTimeout(renderQr, 0);
+  return header('QR-код для отметки', 'Распечатайте и повесьте у входа', true) +
+    `<div class="ui-card" style="text-align:center">
+      <div id="qr-box" class="qr-box"><div class="empty">Генерирую QR-код…</div></div>
+      <div class="muted mt">Сохраните картинку долгим нажатием и распечатайте (размер от 8×8 см). Один и тот же код для прихода и ухода.</div>
+      <div class="muted mt">Текст кода (если делаете QR в другом генераторе): <b class="code-txt">${CHECKIN_CODE}</b></div>
+    </div>`;
+}
+function loadScript(src) {
+  return new Promise((res, rej) => {
+    if (document.querySelector(`script[src="${src}"]`)) return res();
+    const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  });
+}
+async function renderQr() {
+  const box = document.getElementById('qr-box'); if (!box) return;
+  try {
+    if (!window.QRCode) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js');
+    const tmp = document.createElement('div');
+    new window.QRCode(tmp, { text: CHECKIN_CODE, width: 640, height: 640, correctLevel: window.QRCode.CorrectLevel.M });
+    const canvas = tmp.querySelector('canvas');
+    const src = canvas ? canvas.toDataURL('image/png') : (tmp.querySelector('img') || {}).src;
+    const b = document.getElementById('qr-box');
+    if (b) b.innerHTML = `<img src="${src}" alt="QR" class="qr-img"><div class="qr-cap">SwissControl · отметка прихода/ухода</div>`;
+  } catch (e) {
+    const b = document.getElementById('qr-box');
+    if (b) b.innerHTML = '<div class="empty">Не удалось загрузить генератор QR. Сделайте код в любом онлайн-генераторе из текста ниже.</div>';
+  }
+}
+
+function startScan(onText) {
+  const canScan = tg && typeof tg.showScanQrPopup === 'function' && (!tg.isVersionAtLeast || tg.isVersionAtLeast('6.4'));
+  if (!canScan) { alert('Сканер QR доступен в Telegram на телефоне. Обновите Telegram, если кнопка не работает.'); return; }
+  try {
+    tg.showScanQrPopup({ text: 'Наведите камеру на QR-код SwissControl' }, text => {
+      if (String(text || '').trim() !== CHECKIN_CODE) {
+        try { tg.closeScanQrPopup(); } catch (e) {}
+        setTimeout(() => (tg.showAlert ? tg.showAlert('Это не QR-код отметки SwissControl') : alert('Это не QR-код отметки SwissControl')), 100);
+        return true;
+      }
+      setTimeout(() => onText(text), 50);
+      return true;
+    });
+  } catch (e) { alert('Сканер QR недоступен на этом устройстве. Откройте приложение в Telegram на телефоне.'); }
+}
+
+Object.assign(Actions, {
+  attLink() {
+    const id = tgId();
+    if (!id) return alert('Откройте приложение в Telegram');
+    const free = db.staff.filter(s => s.tg_id == null);
+    if (!free.length) return alert('Все сотрудники уже привязаны. Попросите наладчика добавить вас в «Сотрудники» графика.');
+    modal('Кто вы?', [{ k: 'who', label: 'Выберите себя из графика', type: 'select', options: free.map(s => s.name), value: free[0].name }], o => {
+      const p = free.find(s => s.name === o.who); if (!p) return false;
+      p.tg_id = id; save(); rerender();
+    });
+  },
+  checkin() {
+    const me = myStaff(); if (!me) return Actions.attLink();
+    startScan(() => {
+      const r = doCheck(me.id, new Date());
+      const msg = r.kind === 'in' ? `Приход отмечен: ${hm(r.rec.in_ts)} (${shiftTxt(r.rec.day, r.rec.shift)})`
+        : r.kind === 'out' ? `Уход отмечен: ${hm(r.rec.out_ts)}. Отработано ${durTxt(new Date(r.rec.out_ts) - new Date(r.rec.in_ts))}`
+          : 'Эта смена уже закрыта (приход и уход отмечены).';
+      rerender();
+      setTimeout(() => (tg && tg.showAlert ? tg.showAlert(msg) : alert(msg)), 100);
+      try { tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred('success'); } catch (e) {}
+    });
+  },
+  schedAtt() { ui.sched.view = 'att'; ui.sched.attDay = isoDate(new Date()); render(); },
+  schedQr() { ui.sched.view = 'qr'; render(); },
+  attDay(d) { const x = new Date((ui.sched.attDay || isoDate(new Date())) + 'T12:00:00'); x.setDate(x.getDate() + num(d.dir)); ui.sched.attDay = isoDate(x); rerender(); },
+  attEdit(d) {
+    const p = db.staff.find(s => s.id === d.sid); if (!p) return;
+    const day = ui.sched.attDay;
+    const cur = db.att[attId(day, 'd', p.id)] || db.att[attId(day, 'n', p.id)];
+    const plan = rosterGet(day, p.id);
+    const sh0 = cur ? cur.shift : plan || 'd';
+    const SH = { 'День': 'd', 'Ночь': 'n' };
+    modal(`${p.name} · ${day.slice(8)}.${day.slice(5, 7)}`, [
+      { k: 'sh', label: 'Смена', type: 'select', options: ['День', 'Ночь'], value: sh0 === 'n' ? 'Ночь' : 'День' },
+      { k: 'in', label: 'Приход (ЧЧ:ММ)', value: cur ? hm(cur.in_ts) : (sh0 === 'n' ? hh(NIGHT_START) : hh(DAY_START)), ph: '06:00' },
+      { k: 'out', label: 'Уход (ЧЧ:ММ), можно пусто', value: cur && cur.out_ts ? hm(cur.out_ts) : '', ph: '18:00' }
+    ], o => {
+      const t = SH[o.sh], re = /^(\d{1,2})[:.](\d{2})$/;
+      const mi = re.exec(o.in), mo = o.out ? re.exec(o.out) : null;
+      if (!mi || (o.out && !mo)) { alert('Время в формате ЧЧ:ММ, например 06:05'); return false; }
+      const st = shiftStart(day, t);
+      const at = (m) => {                       // время относительно начала смены (ночь переходит через полночь)
+        const d = new Date(st); d.setHours(+m[1], +m[2], 0, 0);
+        if (d - st < -6 * 3600e3) d.setDate(d.getDate() + 1);
+        return d;
+      };
+      const tin = at(mi), tout = mo ? at(mo) : null;
+      if (tout && tout <= tin) tout.setDate(tout.getDate() + 1);
+      if (cur) delete db.att[cur.id];
+      const id = attId(day, t, p.id);
+      db.att[id] = { id, staff_id: p.id, day, shift: t, in_ts: tin.toISOString(), out_ts: tout ? tout.toISOString() : null, by_admin: true };
+      save(); rerender();
+    }, cur ? () => { delete db.att[cur.id]; save(); rerender(); } : null);
+  },
+  attUnlink(d) {
+    const p = db.staff.find(s => s.id === d.sid); if (!p) return;
+    if (!confirm(`Отвязать Telegram от «${p.name}»? Человек сможет заново выбрать себя.`)) return;
+    p.tg_id = null; save(); rerender();
+  }
+});
+['schedAtt', 'schedQr', 'attDay', 'attEdit', 'attUnlink'].forEach(a => ADMIN_ONLY.push(a));
 
 /* =====================================================================
    ДОПУСКИ И ПОСАДКИ
