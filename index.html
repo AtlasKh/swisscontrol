@@ -47,6 +47,34 @@ body { background: linear-gradient(180deg, #F4F7F9 0%, #EAEFF4 100%); color: #3A
 .gcode { background: #1E2A36; color: #D7F5C7; border-radius: 14px; padding: 14px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 15px; line-height: 1.6; overflow-x: auto; white-space: pre; margin: 6px 0 12px; }
 .g76-info { margin-top: 10px; }
 
+/* график смен */
+.legend { font-size: 12px; color: #4A5660; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.lg { display: inline-block; width: 22px; height: 20px; line-height: 20px; text-align: center; border-radius: 6px; font-weight: 800; background: #F1F4F7; border: 1px solid #DCE3EB; }
+.lg.d { background: #F9E2B4; color: #8A5A00; border-color: #EBCB8B; }
+.lg.n { background: #DCD5F7; color: #4B3A99; border-color: #C3B8EE; }
+.warn-box { background: #FDF1E7; border: 1px solid #F2CDAE; border-radius: 14px; padding: 10px 12px; font-size: 13px; margin-top: 10px; color: #7A4A20; }
+.roster-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; background: #fff; border: 1px solid #DCE3EB; border-radius: 18px; box-shadow: 0 8px 24px rgba(160,180,200,.08); }
+table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.roster th, .roster td { width: 32px; min-width: 32px; height: 36px; padding: 0; text-align: center; border-right: 1px solid #EEF2F6; border-bottom: 1px solid #EEF2F6; }
+.roster th { background: #F8FAFC; font-weight: 800; color: #2B3A4A; font-size: 12px; line-height: 1.1; }
+.roster th small { display: block; font-size: 9px; color: #8FA0AF; font-weight: 700; }
+.roster th.we, .roster th.we small { color: #C0392B; }
+.roster .rs-name { position: sticky; left: 0; z-index: 2; background: #fff; min-width: 108px; max-width: 108px; width: 108px; text-align: left; padding: 0 8px; font-weight: 700; color: #2B3A4A; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-right: 2px solid #DCE3EB; font-size: 13px; line-height: 1.15; }
+.roster th.rs-name { background: #F8FAFC; font-size: 10px; color: #8FA0AF; white-space: normal; }
+.roster .rs-name small { display: block; font-size: 10px; color: #8FA0AF; font-weight: 600; }
+.rs-c { font-weight: 800; }
+.rs-c.d { background: #F9E2B4; color: #8A5A00; }
+.rs-c.n { background: #DCD5F7; color: #4B3A99; }
+.roster .today { box-shadow: inset 2px 0 0 #4A90E2, inset -2px 0 0 #4A90E2; }
+.roster.editing .rs-c, .roster.editing tr:not(.rs-cov) td.rs-name { cursor: pointer; }
+.roster.editing tr:not(.rs-cov) td.rs-name { color: #E28743; }
+.rs-cov td { font-weight: 800; font-size: 12px; }
+.rs-cov td.rs-name { font-size: 11px; }
+.cov-ok { background: #C9EDC0; color: #2D6A1F; }
+.cov-mid { background: #FFF1A8; color: #7A6400; }
+.cov-low { background: #F8C1BB; color: #8E2A1F; }
+.mini-btn:disabled { opacity: .35; }
+
 .app-header { background: #fff; padding: 14px 16px; border-radius: 24px; box-shadow: 0 4px 20px rgba(160,180,200,.12); display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border: 1px solid #DCE3EB; gap: 10px; }
 .logo-text { font-size: 19px; font-weight: 800; color: #2B3A4A; }
 .logo-sub { font-size: 11px; color: #7B8E9E; font-weight: 500; }
@@ -206,14 +234,19 @@ function seedData() {
   return { machines: [m] };
 }
 
-let db = Store.load() || seedData();
+/* db.staff = [{id, name}] — сотрудники графика (порядок = порядок в списке)
+   db.roster = { 'ГГГГ-ММ-ДД': { idСотрудника: 'd' | 'n' } } — нет записи = выходной */
+function normDb(d) { d = d || {}; d.machines = d.machines || []; d.staff = d.staff || []; d.roster = d.roster || {}; return d; }
+let db = normDb(Store.load() || seedData());
 /* ===================== ОБЛАКО (Supabase) =====================
    Как это работает: весь остальной код по-прежнему меняет объект db и
    вызывает save(). Слой ниже сам сравнивает db с тем, что уже лежит на
    сервере, и отправляет только изменившиеся строки. Каждые 12 секунд
    (и при возврате в приложение) подтягиваются изменения других людей. */
 const Sync = { enabled: CLOUD, ready: false, busy: false, again: false, dirty: false, queued: false,
-  online: true, error: null, snap: { m: {}, e: {}, c: {} }, loading: {}, t: null, started: false };
+  online: true, error: null, snap: { m: {}, e: {}, c: {}, s: {}, r: {} }, loading: {}, t: null, started: false,
+  noRoster: false };   // noRoster = в базе ещё нет таблиц графика (не выполнен setup2.sql)
+const SYNC_KEYS = ['m', 'e', 'c', 's', 'r'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -239,7 +272,10 @@ async function restAll(path) {            // сервер отдаёт макс�
 
 /* db -> строки таблиц */
 function toRows(d) {
-  const rows = { m: {}, e: {}, c: {} };
+  const rows = { m: {}, e: {}, c: {}, s: {}, r: {} };
+  (d.staff || []).forEach((p, i) => { rows.s[p.id] = { id: p.id, name: p.name, sort: i }; });
+  for (const [day, map] of Object.entries(d.roster || {}))
+    for (const [sid, sh] of Object.entries(map)) { const id = day + '_' + sid; rows.r[id] = { id, staff_id: sid, day, shift: sh }; }
   for (const m of d.machines) {
     const { drawing, shifts, changes, ...data } = m;
     data.hasDrawing = !!(drawing || m.hasDrawing);
@@ -252,8 +288,8 @@ function toRows(d) {
   return rows;
 }
 function serialize(rows) {
-  const s = { m: {}, e: {}, c: {} };
-  for (const k of ['m', 'e', 'c']) for (const id in rows[k]) s[k][id] = JSON.stringify(rows[k][id]);
+  const s = { m: {}, e: {}, c: {}, s: {}, r: {} };
+  for (const k of SYNC_KEYS) for (const id in rows[k]) s[k][id] = JSON.stringify(rows[k][id]);
   return s;
 }
 
@@ -277,13 +313,22 @@ async function syncPush() {
       const changed = k => Object.keys(rows[k]).filter(id => Sync.snap[k][id] !== ser[k][id]).map(id => rows[k][id]);
       const removed = k => Object.keys(Sync.snap[k]).filter(id => !(id in rows[k]) && SAFE_ID.test(id));
       const up = (table, arr) => rest(table + '?on_conflict=id', { method: 'POST', headers: { Prefer: 'resolution=merge-duplicates,return=minimal' }, body: arr });
-      const del = (table, ids) => rest(table + '?id=in.(' + ids.join(',') + ')', { method: 'DELETE' });
+      const del = async (table, ids) => {                    // частями, чтобы адрес запроса не был слишком длинным
+        for (let i = 0; i < ids.length; i += 100) await rest(table + '?id=in.(' + ids.slice(i, i + 100).join(',') + ')', { method: 'DELETE' });
+      };
+      const R = !Sync.noRoster;                               // таблицы графика есть в базе
       const cm = changed('m'), ce = changed('e'), cc = changed('c');
-      if (cm.length) await up('machines', cm);              // станки раньше записей (связь по ключу)
+      const cs = R ? changed('s') : [], cr = R ? changed('r') : [];
+      if (cm.length) await up('machines', cm);              // станки и люди раньше записей (связь по ключу)
+      if (cs.length) await up('staff', cs);
       if (ce.length) await up('shift_entries', ce);
       if (cc.length) await up('tool_changes', cc);
+      if (cr.length) await up('roster', cr);
       const de = removed('e'), dm = removed('m');
+      const dr = R ? removed('r') : [], ds = R ? removed('s') : [];
       if (de.length) await del('shift_entries', de);
+      if (dr.length) await del('roster', dr);
+      if (ds.length) await del('staff', ds);
       if (dm.length) await del('machines', dm);
       Sync.snap = ser;
     } while (Sync.again);
@@ -317,7 +362,18 @@ async function syncPull(first) {
     restAll('shift_entries?select=id,machine_id,day,shift,who,count&order=id'),
     restAll('tool_changes?select=*&order=id')
   ]);
-  if (!ms.length && first) {                       // сервер пуст: первый админ загружает то, что есть на телефоне
+  let ss = [], rs = [];
+  try {                                            // таблицы графика (появляются после setup2.sql)
+    [ss, rs] = await Promise.all([
+      restAll('staff?select=id,name,sort&order=sort'),
+      restAll('roster?select=id,staff_id,day,shift&order=id')
+    ]);
+    Sync.noRoster = false;
+  } catch (e) {
+    if (/PGRST2|42P01|does not exist|schema cache|^404/.test(e.message)) Sync.noRoster = true;
+    else throw e;
+  }
+  if (!ms.length && !ss.length && first) {         // сервер пуст: первый админ загружает то, что есть на телефоне
     if (isAdmin()) {
       Sync.ready = true;
       for (const m of db.machines) if (m.drawing) { m.hasDrawing = true; m.drawingV = m.drawingV || Date.now(); }
@@ -326,7 +382,7 @@ async function syncPull(first) {
       for (const m of db.machines) if (m.drawing) await Sync.putDrawing(m.id, m.drawing);
       return true;
     }
-    db = { machines: [] }; Store.save(db); Sync.snap = { m: {}, e: {}, c: {} };
+    db = normDb({}); Store.save(db); Sync.snap = serialize(toRows(db));
     return true;
   }
   if (Sync.dirty || Sync.busy || Sync.queued) return false;   // у нас есть неотправленные правки — не затираем
@@ -353,7 +409,13 @@ async function syncPull(first) {
   machines.sort((a, b) => String(a.num).localeCompare(String(b.num), 'ru', { numeric: true }));
   const strip = (k, v) => (k === 'drawing' ? undefined : v);
   const before = JSON.stringify(db, strip);
-  db = { machines };
+  let staff = db.staff, roster = db.roster;
+  if (!Sync.noRoster) {
+    staff = ss.slice().sort((a, b) => a.sort - b.sort).map(r => ({ id: r.id, name: r.name }));
+    roster = {};
+    for (const r of rs) (roster[r.day] = roster[r.day] || {})[r.staff_id] = r.shift;
+  }
+  db = { machines, staff, roster };
   const after = JSON.stringify(db, strip);
   Sync.snap = serialize(toRows(db));
   Store.save(db);
@@ -420,7 +482,7 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 const APP_DATE = '31.10.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => tabHtml() + footerHtml() + navHtml();
@@ -822,11 +884,25 @@ function barLiveUpdate(t) {
 }
 
 const views = { list: viewList, machine: viewMachine, tools: viewTools, changes: viewChanges, program: viewProgram, drawing: viewDrawing, calendar: viewCalendar, day: viewDay, bar: viewBar };
+function afterRender() {
+  if (ui.tab === 'schedule' && ui.sched && ui.sched.scrollToday && document.getElementById('roster-wrap')) {
+    ui.sched.scrollToday = false; schedScrollToToday();
+  }
+}
 function render() {
   document.getElementById('app').innerHTML = viewHtml();
   window.scrollTo(0, 0);
+  afterRender();
 }
-function rerender() { const y = window.scrollY; document.getElementById('app').innerHTML = viewHtml(); window.scrollTo(0, y); }
+/* Перерисовка с сохранением прокрутки страницы и горизонтальных таблиц (data-keep-scroll) */
+function rerender() {
+  const y = window.scrollY, keep = {};
+  document.querySelectorAll('[data-keep-scroll]').forEach(el => { keep[el.id] = el.scrollLeft; });
+  document.getElementById('app').innerHTML = viewHtml();
+  window.scrollTo(0, y);
+  for (const id in keep) { const el = document.getElementById(id); if (el) el.scrollLeft = keep[id]; }
+  afterRender();
+}
 
 /* ===================== ДЕЙСТВИЯ ===================== */
 function machineFields(m) {
@@ -860,6 +936,7 @@ const Actions = {
   open(d) { ui.mid = d.id; ui.view = 'machine'; render(); },
   back() {
     if (ui.tab === 'threads') return thrBack();
+    if (ui.tab === 'schedule') { ui.sched.view = 'grid'; ui.sched.scrollToday = true; return render(); }
     if (ui.view === 'machine') ui.view = 'list';
     else if (ui.view === 'day') ui.view = 'calendar';
     else ui.view = 'machine';
@@ -1472,7 +1549,7 @@ const navHtml = () => `<nav class="tabbar"><div class="tabbar-in">${TABS.map(x =
 
 function tabHtml() {
   if (ui.tab === 'threads') return viewThreads();
-  if (ui.tab === 'schedule') return viewStub('График', 'Планирование работы', 'Раздел «График» в разработке — сделаем отдельным этапом.');
+  if (ui.tab === 'schedule') return gateView() || viewSchedule();
   if (ui.tab === 'tol') return viewStub('Допуски', 'Квалитеты H, h, ГОСТ 25346/25347', 'Таблица допусков по квалитетам (H12, H14 и т.д.) в разработке — следующий этап.');
   return gateView() || views[ui.view]();
 }
@@ -1497,7 +1574,7 @@ function copyText(text, btn) {
 }
 
 Object.assign(Actions, {
-  tab(d) { ui.tab = d.t; render(); },
+  tab(d) { ui.tab = d.t; if (d.t === 'schedule') ui.sched.scrollToday = true; render(); },
   thrKind(d) { ui.thr.kind = d.k; ui.thr.step = 'dia'; render(); },
   thrDia(d) { ui.thr.d = +d.d; ui.thr.step = 'pitch'; render(); },
   thrCustom() {
@@ -1524,6 +1601,178 @@ document.addEventListener('input', e => {
   else if (G76_KEYS[id]) {
     const t = g76Tpl(); t[G76_KEYS[id]] = e.target.value; g76Save(t); g76Refresh();
   }
+});
+
+/* =====================================================================
+   ГРАФИК СМЕН
+   Сетка «люди × дни месяца». В клетке: Д — день, Н — ночь, пусто — выходной.
+   Составляет и правит только админ (кнопка «Редактировать»), остальные смотрят.
+   ===================================================================== */
+const WD = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+ui.sched = { month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), edit: false, view: 'grid', scrollToday: true };
+const schedNorm = () => { let n = 3; try { n = +localStorage.getItem('sc_norm') || 3; } catch (e) {} return n; };
+const schedCanEdit = () => isAdmin() && !(Sync.enabled && Sync.noRoster);
+const ROSTER_PATTERNS = {
+  '2 дня / 2 выходных': ['d', 'd', null, null],
+  '2 ночи / 2 выходных': ['n', 'n', null, null],
+  'День / ночь / 2 выходных': ['d', 'n', null, null],
+  '2 дня / 2 ночи / 4 выходных': ['d', 'd', 'n', 'n', null, null, null, null],
+  'Каждый день — день': ['d'],
+  'Каждый день — ночь': ['n'],
+  '5/2 — будни днём': 'wd-d',
+  '5/2 — будни ночью': 'wd-n',
+  'Очистить (все выходные)': [null]
+};
+function monthDays(m) {
+  const y = m.getFullYear(), mo = m.getMonth(), n = new Date(y, mo + 1, 0).getDate();
+  return Array.from({ length: n }, (_, i) => { const dt = new Date(y, mo, i + 1); return { n: i + 1, iso: isoDate(dt), dow: dt.getDay() }; });
+}
+function rosterGet(iso, sid) { return (db.roster[iso] || {})[sid] || null; }
+function rosterSet(iso, sid, v) {
+  if (v) (db.roster[iso] = db.roster[iso] || {})[sid] = v;
+  else if (db.roster[iso]) { delete db.roster[iso][sid]; if (!Object.keys(db.roster[iso]).length) delete db.roster[iso]; }
+}
+function staffTotals(sid, days) {
+  let d = 0, n = 0;
+  days.forEach(x => { const v = rosterGet(x.iso, sid); if (v === 'd') d++; else if (v === 'n') n++; });
+  return { d, n, all: d + n };
+}
+
+function viewSchedule() {
+  if (ui.sched.view === 'staff') return viewStaff();
+  const days = monthDays(ui.sched.month), todayIso = isoDate(new Date());
+  const monthName = ui.sched.month.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+  const canEdit = schedCanEdit(), editing = canEdit && ui.sched.edit, norm = schedNorm();
+  const staff = db.staff;
+  const covCls = c => (c >= norm ? 'cov-ok' : c >= norm - 1 ? 'cov-mid' : 'cov-low');
+  let grid = '';
+  if (staff.length) {
+    const head = `<tr><th class="rs-name">${editing ? 'Тап по имени — шаблон' : 'Сотрудник'}</th>${days.map(x =>
+      `<th class="${x.dow === 0 || x.dow === 6 ? 'we' : ''} ${x.iso === todayIso ? 'today' : ''}"><small>${WD[x.dow]}</small>${x.n}</th>`).join('')}</tr>`;
+    const body = staff.map(p => {
+      const t = staffTotals(p.id, days);
+      return `<tr><td class="rs-name" ${editing ? `data-act="rosterFill" data-sid="${p.id}"` : ''}>${esc(p.name)}<small>☀${t.d} 🌙${t.n} · ${t.all}</small></td>${days.map(x => {
+        const v = rosterGet(x.iso, p.id);
+        return `<td class="rs-c ${v || ''} ${x.iso === todayIso ? 'today' : ''}" ${editing ? `data-act="rosterTap" data-day="${x.iso}" data-sid="${p.id}"` : ''}>${v === 'd' ? 'Д' : v === 'n' ? 'Н' : ''}</td>`;
+      }).join('')}</tr>`;
+    }).join('');
+    const cov = (sh, label) => `<tr class="rs-cov"><td class="rs-name">${label}</td>${days.map(x => {
+      const c = staff.filter(p => rosterGet(x.iso, p.id) === sh).length;
+      return `<td class="${covCls(c)} ${x.iso === todayIso ? 'today' : ''}">${c}</td>`;
+    }).join('')}</tr>`;
+    grid = `<div class="roster-wrap" id="roster-wrap" data-keep-scroll><table class="roster ${editing ? 'editing' : ''}">
+      <thead>${head}</thead><tbody>${body}${cov('d', '☀️ На день')}${cov('n', '🌙 На ночь')}</tbody></table></div>`;
+  }
+  const totals = staff.map(p => { const t = staffTotals(p.id, days); return { p, t }; }).sort((a, b) => b.t.all - a.t.all);
+  return header('График смен', monthName, false) +
+    `<div class="ui-card">
+      <div class="cal-head"><button class="mini-btn" data-act="schedMonth" data-dir="-1">←</button><b>${esc(monthName)}</b><button class="mini-btn" data-act="schedMonth" data-dir="1">→</button></div>
+      <div class="legend"><span class="lg d">Д</span> день ${hh(DAY_START)}–${hh(NIGHT_START)} <span class="lg n">Н</span> ночь ${hh(NIGHT_START)}–${hh(DAY_START)} <span class="lg">&nbsp;</span> выходной</div>
+      ${Sync.enabled && Sync.noRoster ? `<div class="warn-box">⚠️ В базе ещё нет таблиц для графика. Админу нужно один раз выполнить файл <b>setup2.sql</b> в Supabase (SQL Editor). До этого график не сохраняется.</div>` : ''}
+      ${canEdit ? `<div class="two-col mt">
+        <button class="action-button ${editing ? 'orange' : ''}" data-act="schedEdit">${editing ? '✅ Готово' : '✏️ Редактировать'}</button>
+        <button class="action-button secondary" data-act="schedStaff">👥 Сотрудники</button></div>
+        ${editing ? '<div class="muted mt">Тап по клетке: выходной → Д → Н → выходной. Тап по имени — заполнить по шаблону.</div>' : ''}` : ''}
+    </div>
+    ${staff.length ? grid : `<div class="ui-card"><div class="empty">В графике пока нет сотрудников.${canEdit ? '<br>Нажмите «👥 Сотрудники», чтобы добавить людей.' : ''}</div></div>`}
+    ${staff.length ? `<div class="ui-card mt"><div class="section-title">Смен за месяц</div>
+      ${totals.map(({ p, t }) => `<div class="shift-row"><span>👤 ${esc(p.name)}<div class="muted">☀️ ${t.d} · 🌙 ${t.n} · ${t.all * SHIFT_HOURS} ч</div></span><b>${t.all}</b></div>`).join('')}
+      <div class="muted">Внизу сетки — сколько человек на каждой смене: зелёный — ${norm} и больше, жёлтый — ${norm - 1}, красный — меньше.</div></div>` : ''}`;
+}
+
+function viewStaff() {
+  const list = db.staff.map((p, i) => `<div class="tool-row">
+      <div><span class="tool-name">${i + 1}. ${esc(p.name)}</span></div>
+      <div class="row-actions">
+        <button class="mini-btn" data-act="staffMove" data-i="${i}" data-dir="-1" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button class="mini-btn" data-act="staffMove" data-i="${i}" data-dir="1" ${i === db.staff.length - 1 ? 'disabled' : ''}>↓</button>
+        <button class="mini-btn" data-act="staffRename" data-sid="${p.id}">✎</button>
+        <button class="mini-btn danger" data-act="staffDel" data-sid="${p.id}">✕</button>
+      </div></div>`).join('');
+  return header('Сотрудники', 'Люди в графике смен', true) +
+    `<div class="ui-card"><div class="tool-list">${list || '<div class="empty">Список пуст</div>'}</div>
+      <button class="action-button mt" data-act="staffAdd">+ Добавить сотрудников</button>
+      <div class="muted mt">Можно добавить сразу нескольких — через запятую или каждого с новой строки.</div></div>
+    <div class="ui-card"><div class="section-title">Норма людей на смену</div>
+      <div class="input-group"><label>Сколько человек нужно на одну смену (для подсветки)</label>
+      <input type="text" inputmode="numeric" id="sched-norm" value="${schedNorm()}"></div>
+      <div class="muted">Влияет только на цвет счётчика под сеткой. Сохраняется на этом телефоне.</div></div>`;
+}
+
+function schedScrollToToday() {
+  const wrap = document.getElementById('roster-wrap');
+  if (!wrap) return;
+  const cell = wrap.querySelector('th.today');
+  wrap.scrollLeft = cell ? Math.max(0, cell.offsetLeft - 104 - 2 * 32) : 0;
+}
+
+Object.assign(Actions, {
+  schedMonth(d) {
+    const m = ui.sched.month;
+    ui.sched.month = new Date(m.getFullYear(), m.getMonth() + num(d.dir), 1);
+    ui.sched.scrollToday = true; render();
+  },
+  schedEdit() { if (schedCanEdit()) { ui.sched.edit = !ui.sched.edit; rerender(); } },
+  schedStaff() { if (schedCanEdit()) { ui.sched.view = 'staff'; render(); } },
+  rosterTap(d) {
+    if (!schedCanEdit() || !ui.sched.edit) return;
+    const cur = rosterGet(d.day, d.sid);
+    rosterSet(d.day, d.sid, cur === null ? 'd' : cur === 'd' ? 'n' : null);
+    save(); rerender();
+  },
+  rosterFill(d) {
+    if (!schedCanEdit() || !ui.sched.edit) return;
+    const p = db.staff.find(x => x.id === d.sid); if (!p) return;
+    const days = monthDays(ui.sched.month);
+    modal('Заполнить: ' + p.name, [
+      { k: 'pat', label: 'Шаблон', type: 'select', options: Object.keys(ROSTER_PATTERNS), value: '2 дня / 2 выходных' },
+      { k: 'from', label: 'С числа', type: 'number', value: 1 },
+      { k: 'to', label: 'По число', type: 'number', value: days.length }
+    ], o => {
+      const from = Math.max(1, Math.round(num(o.from))), to = Math.min(days.length, Math.round(num(o.to)) || days.length);
+      if (from > to) { alert('«С числа» должно быть не больше «По число»'); return false; }
+      const pat = ROSTER_PATTERNS[o.pat];
+      days.filter(x => x.n >= from && x.n <= to).forEach((x, i) => {
+        let v;
+        if (pat === 'wd-d' || pat === 'wd-n') v = x.dow >= 1 && x.dow <= 5 ? pat.slice(3) : null;
+        else v = pat[i % pat.length];
+        rosterSet(x.iso, p.id, v);
+      });
+      save(); rerender();
+    });
+  },
+  staffAdd() {
+    modal('Новые сотрудники', [{ k: 'names', label: 'Фамилия Имя (несколько — через запятую или с новой строки)', type: 'textarea', rows: 4, value: '' }], o => {
+      const names = o.names.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
+      if (!names.length) return false;
+      names.forEach(name => db.staff.push({ id: uid(), name }));
+      save(); rerender();
+    });
+  },
+  staffRename(d) {
+    const p = db.staff.find(x => x.id === d.sid); if (!p) return;
+    modal('Переименовать', [{ k: 'name', label: 'Фамилия Имя', value: p.name }], o => {
+      if (!o.name) return false;
+      p.name = o.name; save(); rerender();
+    });
+  },
+  staffDel(d) {
+    const p = db.staff.find(x => x.id === d.sid); if (!p) return;
+    if (!confirm(`Удалить «${p.name}» из графика? Все его отметки во всех месяцах тоже удалятся.`)) return;
+    db.staff = db.staff.filter(x => x.id !== p.id);
+    for (const iso of Object.keys(db.roster)) rosterSet(iso, p.id, null);
+    save(); rerender();
+  },
+  staffMove(d) {
+    const i = +d.i, j = i + num(d.dir);
+    if (j < 0 || j >= db.staff.length) return;
+    [db.staff[i], db.staff[j]] = [db.staff[j], db.staff[i]];
+    save(); rerender();
+  }
+});
+['schedEdit', 'schedStaff', 'rosterTap', 'rosterFill', 'staffAdd', 'staffRename', 'staffDel', 'staffMove'].forEach(a => ADMIN_ONLY.push(a));
+document.addEventListener('input', e => {
+  if (e.target.id === 'sched-norm') { const v = Math.round(num(e.target.value)); if (v > 0) { try { localStorage.setItem('sc_norm', v); } catch (er) {} } }
 });
 
 /* ===================== СТАРТ ===================== */
