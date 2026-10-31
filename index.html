@@ -98,6 +98,7 @@ body { background: linear-gradient(180deg, #F4F7F9 0%, #EAEFF4 100%); color: #3A
 .result-big { font-size: 26px; font-weight: 800; color: #E28743; }
 .result-line { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
 
+.app-version { text-align: center; font-size: 11px; color: #9AA9B6; margin-top: 18px; padding-bottom: 6px; letter-spacing: .3px; }
 .modal-bg { position: fixed; inset: 0; background: rgba(30,40,50,.5); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
 .modal { background: #fff; width: 100%; max-width: 460px; border-radius: 24px 24px 0 0; padding: 20px; max-height: 90vh; overflow-y: auto; }
 .modal h3 { font-size: 17px; color: #2B3A4A; margin-bottom: 14px; }
@@ -381,7 +382,12 @@ function gateView() {
   return header('SwissControl', 'Загрузка данных…', false) +
     '<div class="ui-card"><div class="empty">⏳ Загружаем данные с сервера…</div></div>';
 }
-const viewHtml = () => gateView() || views[ui.view]();
+/* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
+   по ним видно, что у сотрудника открылась новая версия. */
+const APP_VERSION = '1.6';
+const APP_DATE = '31.10.2026';
+const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
+const viewHtml = () => (gateView() || views[ui.view]()) + footerHtml();
 
 /* ===================== ПОЛЬЗОВАТЕЛЬ ===================== */
 function getUser() {
@@ -657,20 +663,27 @@ function barResultHtml(m) {
   const c = m.barCfg;
   const qty = num(m.part.qty), len = num(m.part.len);
   const perPart = len + num(m.cutW) + num(c.face);
-  const totalMm = qty * perPart;
-  const usable = num(c.barLen) * 1000 - num(c.remnant);
-  const bars = usable > 0 ? Math.ceil(totalMm / usable) : 0;
+  const remnant = num(c.remnant);
+  const usable = num(c.barLen) * 1000 - remnant;      // полезная длина одного прутка
+  const ok = usable > 0;
+  /* Огарок теряется на каждом прутке, поэтому общая потребность =
+     длина деталей + огарки (по числу прутков, расчётное число без округления). */
+  const calc = parts => {
+    const exact = ok ? parts / usable : 0;
+    return { parts, rem: exact * remnant, all: parts + exact * remnant, bars: Math.ceil(exact - 1e-9) };
+  };
   const done = doneOf(m);
   const left = Math.max(0, qty - done);
-  const leftMm = left * perPart;
-  const leftBars = usable > 0 ? Math.ceil(leftMm / usable) : 0;
-  const warn = usable <= 0 ? '<div class="muted" style="color:#C0392B;margin-top:6px">⚠️ Остаток-огарок больше длины прутка, проверьте значения.</div>' : '';
-  return `<div class="muted">Нужно прутка на всю партию</div>
-    <div class="result-big">${fmtNum(totalMm / 1000)} м</div>
+  const all = calc(qty * perPart), rest = calc(left * perPart);
+  const warn = !ok ? '<div class="muted" style="color:#C0392B;margin-top:6px">⚠️ Остаток-огарок больше длины прутка, проверьте значения.</div>' : '';
+  return `<div class="muted">Нужно прутка на всю партию (с огарками)</div>
+    <div class="result-big">${fmtNum(all.all / 1000)} м</div>
     <div class="result-line"><span>Расход на 1 деталь</span><b>${fmtNum(perPart)} мм</b></div>
-    <div class="result-line"><span>Прутков (по ${fmtNum(num(c.barLen))} м)</span><b>${bars} шт</b></div>
+    <div class="result-line"><span>На детали (без огарков)</span><b>${fmtNum(all.parts / 1000)} м</b></div>
+    <div class="result-line"><span>Огарки (${fmtNum(num(remnant), 0)} мм × прутки)</span><b>${fmtNum(all.rem / 1000)} м</b></div>
+    <div class="result-line"><span>Прутков целиком (по ${fmtNum(num(c.barLen))} м)</span><b>${all.bars} шт</b></div>
     <div class="result-line"><span>Осталось сделать</span><b>${fmtNum(left, 0)} шт</b></div>
-    <div class="result-line"><span>Ещё нужно прутка</span><b>${fmtNum(leftMm / 1000)} м (${leftBars} шт)</b></div>${warn}`;
+    <div class="result-line"><span>Ещё нужно прутка</span><b>${fmtNum(rest.all / 1000)} м (${rest.bars} шт)</b></div>${warn}`;
 }
 
 function viewBar() {
@@ -694,7 +707,7 @@ function viewBar() {
         ${field('b-rem', 'Остаток-огарок (мм)', c.remnant)}
       </div>
       <div class="result-box" id="bar-result">${barResultHtml(m)}</div>
-      <div class="muted mt">Расход на деталь = длина + ширина отрезного + подрезка торца. Результат пересчитывается сразу при вводе. ${isAdmin() ? 'Длину детали и партию меняйте в «Наладке станка».' : 'Параметры расчёта меняет наладчик.'}</div>
+      <div class="muted mt">Расход на деталь = длина + ширина отрезного + подрезка торца. Огарок теряется на каждом прутке и добавляется к общей потребности. Результат пересчитывается сразу при вводе. ${isAdmin() ? 'Длину детали и партию меняйте в «Наладке станка».' : 'Параметры расчёта меняет наладчик.'}</div>
     </div>`;
 }
 
