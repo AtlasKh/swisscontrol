@@ -651,40 +651,65 @@ function viewDay() {
   return header(`${dd}.${mm}.${yy}`, `Всего за сутки: ${fmtNum(total, 0)} шт · станок №${m.num}`, true) + block('day') + block('night');
 }
 
-function viewBar() {
-  const m = curM(), c = m.barCfg;
-  const ro = isAdmin() ? '' : 'disabled';
+/* Блок результата расчёта. Отдельная функция, чтобы его можно было
+   перерисовывать на лету при вводе, не трогая поля ввода (иначе пропадёт курсор). */
+function barResultHtml(m) {
+  const c = m.barCfg;
   const qty = num(m.part.qty), len = num(m.part.len);
   const perPart = len + num(m.cutW) + num(c.face);
   const totalMm = qty * perPart;
   const usable = num(c.barLen) * 1000 - num(c.remnant);
   const bars = usable > 0 ? Math.ceil(totalMm / usable) : 0;
   const done = doneOf(m);
-  const leftMm = Math.max(0, qty - done) * perPart;
+  const left = Math.max(0, qty - done);
+  const leftMm = left * perPart;
   const leftBars = usable > 0 ? Math.ceil(leftMm / usable) : 0;
+  const warn = usable <= 0 ? '<div class="muted" style="color:#C0392B;margin-top:6px">⚠️ Остаток-огарок больше длины прутка, проверьте значения.</div>' : '';
+  return `<div class="muted">Нужно прутка на всю партию</div>
+    <div class="result-big">${fmtNum(totalMm / 1000)} м</div>
+    <div class="result-line"><span>Расход на 1 деталь</span><b>${fmtNum(perPart)} мм</b></div>
+    <div class="result-line"><span>Прутков (по ${fmtNum(num(c.barLen))} м)</span><b>${bars} шт</b></div>
+    <div class="result-line"><span>Осталось сделать</span><b>${fmtNum(left, 0)} шт</b></div>
+    <div class="result-line"><span>Ещё нужно прутка</span><b>${fmtNum(leftMm / 1000)} м (${leftBars} шт)</b></div>${warn}`;
+}
+
+function viewBar() {
+  const m = curM(), c = m.barCfg;
+  const ro = isAdmin() ? '' : 'disabled';
+  const field = (id, label, val) => `<div class="input-group"><label>${label}</label><input type="text" inputmode="decimal" id="${id}" value="${esc(val)}" ${ro}></div>`;
   return header('Расчёт прутка', 'Станок №' + m.num, true) +
     `<div class="ui-card">
       <div class="params-grid">
         <div class="param-cell"><span class="param-lbl">Деталь</span><span class="param-val">${esc(m.part.name || '—')}</span></div>
-        <div class="param-cell"><span class="param-lbl">Партия</span><span class="param-val">${fmtNum(qty, 0)} шт</span></div>
-        <div class="param-cell"><span class="param-lbl">Длина детали</span><span class="param-val">${fmtNum(len)} мм</span></div>
-        <div class="param-cell"><span class="param-lbl">Ширина отрезки</span><span class="param-val">${fmtNum(num(m.cutW))} мм</span></div>
+        <div class="param-cell"><span class="param-lbl">Партия</span><span class="param-val">${fmtNum(num(m.part.qty), 0)} шт</span></div>
+        <div class="param-cell"><span class="param-lbl">Длина детали</span><span class="param-val">${fmtNum(num(m.part.len))} мм</span></div>
+        <div class="param-cell"><span class="param-lbl">Пруток</span><span class="param-val">${m.bar.dia ? 'Ø' + esc(m.bar.dia) + ' мм' : '—'}</span></div>
       </div>
       <div class="two-col">
-        <div class="input-group"><label>Подрезка торца (мм)</label><input type="text" inputmode="decimal" id="b-face" value="${esc(c.face)}" ${ro}></div>
-        <div class="input-group"><label>Длина прутка (м)</label><input type="text" inputmode="decimal" id="b-len" value="${esc(c.barLen)}" ${ro}></div>
+        ${field('b-cut', 'Отрезной резец (мм)', m.cutW)}
+        ${field('b-face', 'Подрезка торца (мм)', c.face)}
       </div>
-      <div class="input-group"><label>Остаток-огарок на пруток (мм)</label><input type="text" inputmode="decimal" id="b-rem" value="${esc(c.remnant)}" ${ro}></div>
-      <div class="result-box">
-        <div class="muted">Нужно прутка на всю партию</div>
-        <div class="result-big">${fmtNum(totalMm / 1000)} м</div>
-        <div class="result-line"><span>Расход на 1 деталь</span><b>${fmtNum(perPart)} мм</b></div>
-        <div class="result-line"><span>Прутков (по ${fmtNum(num(c.barLen))} м)</span><b>${bars} шт</b></div>
-        <div class="result-line"><span>Осталось сделать</span><b>${fmtNum(Math.max(0, qty - done), 0)} шт</b></div>
-        <div class="result-line"><span>Ещё нужно прутка</span><b>${fmtNum(leftMm / 1000)} м (${leftBars} шт)</b></div>
+      <div class="two-col">
+        ${field('b-len', 'Длина прутка (м)', c.barLen)}
+        ${field('b-rem', 'Остаток-огарок (мм)', c.remnant)}
       </div>
-      <div class="muted mt">Расход на деталь = длина + ширина отрезного + подрезка торца. ${isAdmin() ? 'Длину детали и количество меняйте в «Наладке станка».' : 'Параметры расчёта меняет наладчик.'}</div>
+      <div class="result-box" id="bar-result">${barResultHtml(m)}</div>
+      <div class="muted mt">Расход на деталь = длина + ширина отрезного + подрезка торца. Результат пересчитывается сразу при вводе. ${isAdmin() ? 'Длину детали и партию меняйте в «Наладке станка».' : 'Параметры расчёта меняет наладчик.'}</div>
     </div>`;
+}
+
+/* Пересчёт «на лету» при вводе в поля калькулятора */
+const BAR_FIELDS = { 'b-cut': m => m, 'b-face': m => m.barCfg, 'b-len': m => m.barCfg, 'b-rem': m => m.barCfg };
+const BAR_KEYS = { 'b-cut': 'cutW', 'b-face': 'face', 'b-len': 'barLen', 'b-rem': 'remnant' };
+let barSaveTimer = null;
+function barLiveUpdate(t) {
+  const m = curM();
+  if (!m || !isAdmin()) return;
+  BAR_FIELDS[t.id](m)[BAR_KEYS[t.id]] = num(t.value);
+  const box = document.getElementById('bar-result');
+  if (box) box.innerHTML = barResultHtml(m);
+  clearTimeout(barSaveTimer);
+  barSaveTimer = setTimeout(save, 700);      // сохраняем, когда человек на секунду остановился
 }
 
 const views = { list: viewList, machine: viewMachine, tools: viewTools, changes: viewChanges, program: viewProgram, drawing: viewDrawing, calendar: viewCalendar, day: viewDay, bar: viewBar };
@@ -872,14 +897,15 @@ document.addEventListener('change', e => {
     const e2 = todayEntry(curM(), true);
     e2.count = Math.max(0, Math.round(num(t.value)));
     save(); rerender();
-  } else if (t.id === 'b-face' || t.id === 'b-len' || t.id === 'b-rem') {
+  } else if (BAR_FIELDS[t.id]) {              // ушли из поля калькулятора — сохраняем сразу
     if (!isAdmin()) return;
-    const c = curM().barCfg;
-    if (t.id === 'b-face') c.face = num(t.value);
-    if (t.id === 'b-len') c.barLen = num(t.value);
-    if (t.id === 'b-rem') c.remnant = num(t.value);
-    save(); rerender();
+    barLiveUpdate(t);
+    clearTimeout(barSaveTimer);
+    save();
   }
+});
+document.addEventListener('input', e => {
+  if (BAR_FIELDS[e.target.id]) barLiveUpdate(e.target);
 });
 
 /* ===================== СТАРТ ===================== */
