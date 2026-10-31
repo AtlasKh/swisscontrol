@@ -75,6 +75,23 @@ table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .cov-low { background: #F8C1BB; color: #8E2A1F; }
 .mini-btn:disabled { opacity: .35; }
 
+/* допуски */
+.seg { display: flex; background: #EEF2F6; border-radius: 14px; padding: 3px; margin-bottom: 8px; }
+.seg:last-child { margin-bottom: 0; }
+.seg-i { flex: 1; text-align: center; padding: 9px 4px; border-radius: 11px; font-size: 13px; font-weight: 800; color: #6B7C8C; cursor: pointer; }
+.seg-i.on { background: #fff; color: #2B3A4A; box-shadow: 0 2px 6px rgba(120,140,160,.25); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chip { padding: 6px 10px; border-radius: 10px; background: #F4F7F9; border: 1px solid #DCE3EB; font-size: 13px; font-weight: 800; color: #2B3A4A; cursor: pointer; }
+.chip.on { background: #E28743; border-color: #E28743; color: #fff; }
+.tol-res { border-color: #F2CDAE; background: #FFFBF7; }
+.tol-dev { display: flex; flex-direction: column; align-items: center; font-size: 22px; font-weight: 800; color: #E28743; line-height: 1.25; margin-top: 4px; }
+.tol-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tol-tbl th { text-align: right; font-size: 11px; color: #8FA0AF; font-weight: 700; padding: 6px 4px; border-bottom: 1px solid #DCE3EB; }
+.tol-tbl td { text-align: right; padding: 7px 4px; border-bottom: 1px solid #EEF2F6; font-weight: 700; color: #2B3A4A; white-space: nowrap; }
+.tol-tbl th:first-child, .tol-tbl td:first-child { text-align: left; font-weight: 600; color: #4A5660; white-space: normal; }
+.tol-tbl tr.hl td { background: #FDF1E7; }
+.tol-tbl td.col-on { color: #E28743; }
+
 .app-header { background: #fff; padding: 14px 16px; border-radius: 24px; box-shadow: 0 4px 20px rgba(160,180,200,.12); display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border: 1px solid #DCE3EB; gap: 10px; }
 .logo-text { font-size: 19px; font-weight: 800; color: #2B3A4A; }
 .logo-sub { font-size: 11px; color: #7B8E9E; font-weight: 500; }
@@ -482,7 +499,7 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.9';
+const APP_VERSION = '1.11';
 const APP_DATE = '31.10.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => tabHtml() + footerHtml() + navHtml();
@@ -625,16 +642,23 @@ const fmtDur = hours => {
   const d = Math.floor(totalH / 24), h = totalH % 24;
   return (d ? d + ' дн ' : '') + h + ' ч';
 };
+/* Фактическая выработка за смену по записям календаря смен этого станка.
+   Текущая (ещё не закрытая) смена не учитывается.
+   max — лучшая смена (сколько реально можно сделать за полную смену),
+   avg — среднее по всем внесённым сменам, включая неполные (наладка и т.п.). */
 function factPerShift(m) {
   const cs = currentShift(), groups = {};
   for (const [day, arr] of Object.entries(m.shifts || {})) for (const e of arr) {
-    const k = day + '|' + shiftOf(e);
+    const type = shiftOf(e), k = day + '|' + type;
     if (k === cs.date + '|' + cs.type) continue;
-    groups[k] = (groups[k] || 0) + num(e.count);
+    (groups[k] = groups[k] || { day, type, v: 0 }).v += num(e.count);
   }
-  const vals = Object.values(groups).filter(v => v > 0);
-  return vals.length ? { avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length } : null;
+  const all = Object.values(groups).filter(g => g.v > 0);
+  if (!all.length) return null;
+  const best = all.reduce((a, g) => (g.v > a.v ? g : a));
+  return { max: best.v, best, avg: all.reduce((a, g) => a + g.v, 0) / all.length, n: all.length };
 }
+const shiftLbl = g => (g.type === 'night' ? '🌙 ночь ' : '☀️ день ') + g.day.slice(8) + '.' + g.day.slice(5, 7);
 function forecastHtml(m) {
   const qty = num(m.part.qty), left = Math.max(0, qty - doneOf(m));
   const cyc = num(m.cycle), eff = Math.min(100, Math.max(1, num(m.eff) || 85)) / 100;
@@ -656,8 +680,9 @@ function forecastHtml(m) {
       ${line('Это смен по ' + SHIFT_HOURS + ' ч', '≈ ' + fmtNum(hours / SHIFT_HOURS, 1))}
       ${line('Окончание примерно', fmtDT(finish.toISOString()))}`;
     if (fact) {
-      const fh = left / (fact.avg / SHIFT_HOURS);
-      main += line('По факту (' + fmtNum(fact.avg, 0) + ' шт/смену)', '≈ ' + fmtDur(fh));
+      main += line('По максимуму (' + fmtNum(fact.max, 0) + ' шт/смену)', '≈ ' + fmtDur(left / (fact.max / SHIFT_HOURS)));
+      if (fact.n > 1 && Math.round(fact.avg) !== fact.max)
+        main += line('По среднему (' + fmtNum(fact.avg, 0) + ' шт/смену)', '≈ ' + fmtDur(left / (fact.avg / SHIFT_HOURS)));
     }
   }
   return `<div class="ui-card">${head}<div class="result-box" style="margin-top:0">${main}
@@ -667,7 +692,10 @@ function forecastHtml(m) {
     ${line('☀️ День (' + hh(DAY_START) + '–' + hh(NIGHT_START) + ')', '≈ ' + fmtNum(perShift, 0) + ' шт')}
     ${line('🌙 Ночь (' + hh(NIGHT_START) + '–' + hh(DAY_START) + ')', '≈ ' + fmtNum(perShift, 0) + ' шт')}
     ${line('За сутки', '≈ ' + fmtNum(perShift * 2, 0) + ' шт')}
-    ${fact ? line('Факт: в среднем за смену', fmtNum(fact.avg, 0) + ' шт (' + fact.n + ' смен)') : ''}
+    ${fact ? line('Факт: максимум за смену', fmtNum(fact.max, 0) + ' шт') : ''}
+    ${fact ? `<div class="muted" style="font-size:12px;margin-top:-2px">${shiftLbl(fact.best)}</div>` : ''}
+    ${fact ? line('Факт: в среднем за смену', fmtNum(fact.avg, 0) + ' шт (' + fact.n + ' ' + (fact.n === 1 ? 'смена' : fact.n < 5 ? 'смены' : 'смен') + ')') : ''}
+    ${fact && fact.n > 1 ? '<div class="muted" style="font-size:12px;margin-top:-2px">по всем внесённым сменам, включая неполные (наладка)</div>' : ''}
   </div>
   <div class="muted mt">Расчётное время, при работе станка в обе смены без остановок, кроме учтённой загрузки.</div></div>`;
 }
@@ -1550,7 +1578,7 @@ const navHtml = () => `<nav class="tabbar"><div class="tabbar-in">${TABS.map(x =
 function tabHtml() {
   if (ui.tab === 'threads') return viewThreads();
   if (ui.tab === 'schedule') return gateView() || viewSchedule();
-  if (ui.tab === 'tol') return viewStub('Допуски', 'Квалитеты H, h, ГОСТ 25346/25347', 'Таблица допусков по квалитетам (H12, H14 и т.д.) в разработке — следующий этап.');
+  if (ui.tab === 'tol') return viewTol();
   return gateView() || views[ui.view]();
 }
 
@@ -1773,6 +1801,344 @@ Object.assign(Actions, {
 ['schedEdit', 'schedStaff', 'rosterTap', 'rosterFill', 'staffAdd', 'staffRename', 'staffDel', 'staffMove'].forEach(a => ADMIN_ONLY.push(a));
 document.addEventListener('input', e => {
   if (e.target.id === 'sched-norm') { const v = Math.round(num(e.target.value)); if (v > 0) { try { localStorage.setItem('sc_norm', v); } catch (er) {} } }
+});
+
+/* =====================================================================
+   ДОПУСКИ И ПОСАДКИ
+   ГОСТ 25346-2013 / 25347-2013 = ISO 286-1 / 286-2 (идентичны, значения совпадают).
+   Общие допуски: ГОСТ 30893.1-2002 = ISO 2768-1; ГОСТ 25670-83 (±IT/2).
+   Все значения в таблицах — мкм. Размеры до 500 мм.
+   ===================================================================== */
+const TOL = (() => {
+  // основные интервалы
+  const R = [[0, 3], [3, 6], [6, 10], [10, 18], [18, 30], [30, 50], [50, 80], [80, 120], [120, 180], [180, 250], [250, 315], [315, 400], [400, 500]];
+  // промежуточные интервалы (для a, b, c, r, s, t, u, x, z)
+  const S = [[0, 3], [3, 6], [6, 10], [10, 14], [14, 18], [18, 24], [24, 30], [30, 40], [40, 50], [50, 65], [65, 80], [80, 100], [100, 120],
+    [120, 140], [140, 160], [160, 180], [180, 200], [200, 225], [225, 250], [250, 280], [280, 315], [315, 355], [355, 400], [400, 450], [450, 500]];
+  const S2R = S.map(([lo, hi]) => R.findIndex(r => lo >= r[0] && hi <= r[1]));
+  const rows = t => t.trim().split('\n').map(l => l.trim().split(/\s+/).map(v => (v === '-' ? null : +v)));
+  // Таблица 1: IT1…IT18 по основным интервалам
+  const IT = rows(`
+    0.8 1.2 2 3 4 6 10 14 25 40 60 100 140 250 400 600 1000 1400
+    1 1.5 2.5 4 5 8 12 18 30 48 75 120 180 300 480 750 1200 1800
+    1 1.5 2.5 4 6 9 15 22 36 58 90 150 220 360 580 900 1500 2200
+    1.2 2 3 5 8 11 18 27 43 70 110 180 270 430 700 1100 1800 2700
+    1.5 2.5 4 6 9 13 21 33 52 84 130 210 330 520 840 1300 2100 3300
+    1.5 2.5 4 7 11 16 25 39 62 100 160 250 390 620 1000 1600 2500 3900
+    2 3 5 8 13 19 30 46 74 120 190 300 460 740 1200 1900 3000 4600
+    2.5 4 6 10 15 22 35 54 87 140 220 350 540 870 1400 2200 3500 5400
+    3.5 5 8 12 18 25 40 63 100 160 250 400 630 1000 1600 2500 4000 6300
+    4.5 7 10 14 20 29 46 72 115 185 290 460 720 1150 1850 2900 4600 7200
+    6 8 12 16 23 32 52 81 130 210 320 520 810 1300 2100 3200 5200 8100
+    7 9 13 18 25 36 57 89 140 230 360 570 890 1400 2300 3600 5700 8900
+    8 10 15 20 27 40 63 97 155 250 400 630 970 1550 2500 4000 6300 9700`);
+  // es валов a, b, c — по промежуточным интервалам
+  const ABC = rows(`
+    -270 -140 -60
+    -270 -140 -70
+    -280 -150 -80
+    -290 -150 -95
+    -290 -150 -95
+    -300 -160 -110
+    -300 -160 -110
+    -310 -170 -120
+    -320 -180 -130
+    -340 -190 -140
+    -360 -200 -150
+    -380 -220 -170
+    -410 -240 -180
+    -460 -260 -200
+    -520 -280 -210
+    -580 -310 -230
+    -660 -340 -240
+    -740 -380 -260
+    -820 -420 -280
+    -920 -480 -300
+    -1050 -540 -330
+    -1200 -600 -360
+    -1350 -680 -400
+    -1500 -760 -440
+    -1650 -840 -480`);
+  // es валов d, e, f, g и ei валов k(IT4–IT7), m, n, p — по основным интервалам
+  const DG = rows(`
+    -20 -14 -6 -2 0 2 4 6
+    -30 -20 -10 -4 1 4 8 12
+    -40 -25 -13 -5 1 6 10 15
+    -50 -32 -16 -6 1 7 12 18
+    -65 -40 -20 -7 2 8 15 22
+    -80 -50 -25 -9 2 9 17 26
+    -100 -60 -30 -10 2 11 20 32
+    -120 -72 -36 -12 3 13 23 37
+    -145 -85 -43 -14 3 15 27 43
+    -170 -100 -50 -15 4 17 31 50
+    -190 -110 -56 -17 4 20 34 56
+    -210 -125 -62 -18 4 21 37 62
+    -230 -135 -68 -20 5 23 40 68`);
+  // ei валов r, s, t, u, x, z — по промежуточным интервалам
+  const RZ = rows(`
+    10 14 - 18 20 26
+    15 19 - 23 28 35
+    19 23 - 28 34 42
+    23 28 - 33 40 50
+    23 28 - 33 45 60
+    28 35 - 41 54 73
+    28 35 41 48 64 88
+    34 43 48 60 80 112
+    34 43 54 70 97 136
+    41 53 66 87 122 172
+    43 59 75 102 145 210
+    51 71 91 124 178 258
+    54 79 104 144 210 310
+    63 92 122 170 248 365
+    65 100 134 190 280 415
+    68 108 146 210 310 465
+    77 122 166 236 350 520
+    80 130 180 258 385 575
+    84 140 196 284 425 640
+    94 158 218 315 475 710
+    98 170 240 350 525 790
+    108 190 268 390 590 900
+    114 208 294 435 660 1000
+    126 232 330 490 740 1100
+    132 252 360 540 820 1250`);
+  // Δ для IT3…IT8 по основным интервалам (для отверстий K, M, N и P…ZC)
+  const DELTA = rows(`
+    0 0 0 0 0 0
+    1 1.5 1 3 4 6
+    1 1.5 2 3 6 7
+    1 2 3 3 7 9
+    1.5 2 3 4 8 12
+    1.5 3 4 5 9 14
+    2 3 5 6 11 16
+    2 4 5 7 13 19
+    3 4 6 7 15 23
+    3 4 6 9 17 26
+    4 4 7 9 20 29
+    4 5 7 11 21 32
+    5 5 7 13 23 34`);
+  // допустимые квалитеты для основных отклонений (по ISO 286-2 / ГОСТ 25347)
+  const G = (a, b) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  const SHAFT = { a: G(9, 13), b: G(9, 13), c: G(8, 13), d: G(6, 13), e: G(5, 10), f: G(4, 10), g: G(4, 10), h: G(4, 18), js: G(4, 18),
+    k: G(4, 13), m: G(4, 9), n: G(4, 9), p: G(4, 10), r: G(4, 10), s: G(4, 10), t: G(5, 8), u: G(5, 9), x: G(5, 10), z: G(6, 11) };
+  const HOLE = { A: G(9, 13), B: G(8, 13), C: G(8, 13), D: G(6, 13), E: G(5, 10), F: G(4, 10), G: G(4, 10), H: G(4, 18), JS: G(4, 18),
+    K: G(4, 8), M: G(4, 10), N: G(4, 11), P: G(4, 10), R: G(4, 10), S: G(4, 10), T: G(5, 8), U: G(5, 10), X: G(5, 10), Z: G(6, 11) };
+  const POPULAR = { hole: ['H7', 'H8', 'H9', 'H11', 'H12', 'H13', 'H14', 'G7', 'F7', 'F8', 'E9', 'D10', 'JS7', 'K7', 'M7', 'N7', 'P7'],
+    shaft: ['h6', 'h7', 'h8', 'h9', 'h11', 'h12', 'h13', 'h14', 'g6', 'f7', 'e8', 'd9', 'js6', 'k6', 'm6', 'n6', 'p6', 'r6', 's6'] };
+
+  const subIdx = D => S.findIndex(([lo, hi]) => D > lo && D <= hi);
+  const jsHalf = (it, g) => (g >= 7 && g <= 11 && it % 2 === 1 ? (it - 1) / 2 : it / 2);
+  /* предельные отклонения поля допуска для промежуточного интервала si (мкм) */
+  function devAt(kind, letter, grade, si) {
+    const ri = S2R[si], it = IT[ri][grade - 1];
+    if (kind === 'shaft') {
+      const L = letter;
+      if (!SHAFT[L] || !SHAFT[L].includes(grade)) return null;
+      if (L === 'js') { const h = jsHalf(it, grade); return { up: h, lo: -h, it }; }
+      let es = null, ei = null;
+      if ('abc'.includes(L) && L.length === 1) es = ABC[si]['abc'.indexOf(L)];
+      else if ('defg'.includes(L)) es = DG[ri]['defg'.indexOf(L)];
+      else if (L === 'h') es = 0;
+      else if (L === 'k') ei = grade >= 4 && grade <= 7 ? DG[ri][4] : 0;
+      else if ('mnp'.includes(L)) ei = DG[ri][5 + 'mnp'.indexOf(L)];
+      else ei = RZ[si]['rstuxz'.indexOf(L)];
+      if (es != null) return { up: es, lo: es - it, it };
+      if (ei == null) return null;
+      return { up: ei + it, lo: ei, it };
+    }
+    const L = letter;
+    if (!HOLE[L] || !HOLE[L].includes(grade)) return null;
+    if (L === 'JS') { const h = jsHalf(it, grade); return { up: h, lo: -h, it }; }
+    if ('ABCDEFGH'.includes(L)) {           // EI = −es вала той же буквы
+      const s = devAt('shaft', L.toLowerCase(), Math.min(Math.max(grade, SHAFT[L.toLowerCase()][0]), SHAFT[L.toLowerCase()].slice(-1)[0]), si);
+      if (!s) return null;
+      const EI = L === 'H' ? 0 : -s.up;
+      return { up: EI + it, lo: EI, it };
+    }
+    const delta = grade >= 3 && grade <= 8 ? DELTA[ri][grade - 3] : 0;
+    let ES;
+    if (L === 'K') ES = -(DG[ri][4]) + delta;                        // ≤IT8
+    else if (L === 'M') ES = grade <= 8 ? -DG[ri][5] + delta : -DG[ri][5];
+    else if (L === 'N') ES = grade <= 8 ? -DG[ri][6] + delta : 0;
+    else {
+      const ei = L === 'P' ? DG[ri][7] : RZ[si]['RSTUXZ'.indexOf(L)];
+      if (ei == null) return null;
+      ES = grade <= 7 ? -ei + delta : -ei;
+    }
+    if (L === 'M' && grade === 6 && ri === 10) ES = -9;            // особый случай ГОСТ/ISO: M6 св. 250 до 315
+    return { up: ES, lo: ES - it, it };
+  }
+  function calc(kind, letter, grade, D) {
+    const si = subIdx(D);
+    if (si < 0) return null;
+    const d = devAt(kind, letter, grade, si);
+    return d && Object.assign({ si, range: S[si] }, d);
+  }
+  /* таблица по всем интервалам, соседние интервалы с одинаковыми значениями объединяются */
+  function table(kind, letter, grade) {
+    const out = [];
+    S.forEach((rg, si) => {
+      const d = devAt(kind, letter, grade, si);
+      if (!d) return;
+      const last = out[out.length - 1];
+      if (last && last.up === d.up && last.lo === d.lo && last.hi === rg[0]) { last.hi = rg[1]; last.sis.push(si); }
+      else out.push({ lo0: rg[0], hi: rg[1], up: d.up, lo: d.lo, it: d.it, sis: [si] });
+    });
+    return out;
+  }
+  // ГОСТ 30893.1-2002 / ISO 2768-1
+  const LIN = { ranges: [[0.5, 3], [3, 6], [6, 30], [30, 120], [120, 400], [400, 1000], [1000, 2000], [2000, 4000]],
+    f: [0.05, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, null], m: [0.1, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 2],
+    c: [0.2, 0.3, 0.5, 0.8, 1.2, 2, 3, 4], v: [null, 0.5, 1, 1.5, 2.5, 4, 6, 8] };
+  const EDGE = { ranges: [[0.5, 3], [3, 6], [6, Infinity]], f: [0.2, 0.5, 1], m: [0.2, 0.5, 1], c: [0.4, 1, 2], v: [0.4, 1, 2] };
+  const ANG = { ranges: ['до 10', 'св. 10 до 50', 'св. 50 до 120', 'св. 120 до 400', 'св. 400'],
+    f: ['1°', '30′', '20′', '10′', '5′'], m: ['1°', '30′', '20′', '10′', '5′'], c: ['1°30′', '1°', '30′', '15′', '10′'], v: ['3°', '2°', '1°', '30′', '20′'] };
+  const CLS = { f: 'f — точный', m: 'm — средний', c: 'c — грубый', v: 'v — очень грубый' };
+  return { R, S, IT, SHAFT, HOLE, POPULAR, subIdx, devAt, calc, table, LIN, EDGE, ANG, CLS };
+})();
+
+ui.tol = { sys: 'gost', mode: 'fit', kind: 'hole', letter: 'H', grade: 7, size: '', cls: 'm', t25670: 14 };
+try { const s = JSON.parse(localStorage.getItem('sc_tol') || 'null'); if (s) Object.assign(ui.tol, s); } catch (e) {}
+const tolSave = () => { try { localStorage.setItem('sc_tol', JSON.stringify(ui.tol)); } catch (e) {} };
+const mm3 = um => { const v = um / 1000; return v === 0 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v).toFixed(4).replace(/0$/, '').replace('.', ','); };
+const mmFix = v => (Math.round(v * 1000) / 1000).toFixed(3).replace('.', ',');
+const rangeTxt = (lo, hi) => (lo === 0 ? 'до ' + hi : 'св. ' + String(lo).replace('.', ',') + ' до ' + String(hi).replace('.', ','));
+const fieldName = t => t.letter + t.grade;
+const seg = (act, cur, opts) => `<div class="seg">${opts.map(([v, l]) => `<div class="seg-i ${cur === v ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</div>`).join('')}</div>`;
+
+function viewTol() {
+  const t = ui.tol, gost = t.sys === 'gost';
+  const top = header('Допуски и посадки', gost ? 'ГОСТ 25346/25347-2013' : 'ISO 286-1 / 286-2', false) +
+    `<div class="ui-card">
+      ${seg('tolSys', t.sys, [['gost', 'ГОСТ'], ['iso', 'ISO']])}
+      ${seg('tolMode', t.mode, [['fit', 'Квалитеты (посадки)'], ['free', 'Свободные размеры']])}
+    </div>`;
+  return top + (t.mode === 'fit' ? viewTolFit() : viewTolFree());
+}
+
+function viewTolFit() {
+  const t = ui.tol, gost = t.sys === 'gost';
+  const letters = Object.keys(t.kind === 'hole' ? TOL.HOLE : TOL.SHAFT);
+  const grades = (t.kind === 'hole' ? TOL.HOLE : TOL.SHAFT)[t.letter] || [];
+  const D = num(t.size), fld = fieldName(t);
+  const res = D > 0 && D <= 500 ? TOL.calc(t.kind, t.letter, t.grade, D) : null;
+  const sizeBad = String(t.size).trim() !== '' && !(D > 0 && D <= 500);
+  const tbl = TOL.table(t.kind, t.letter, t.grade);
+  const result = res ? `<div class="ui-card tol-res">
+      <div class="thr-title">Ø${String(D).replace('.', ',')} ${fld}</div>
+      <div class="tol-dev"><span>${mm3(res.up)}</span><span>${mm3(res.lo)}</span></div>
+      <div class="dim-grid" style="margin-top:10px"><div><small>мин</small>${mmFix(D + res.lo / 1000)}</div><div><small>сред.</small>${mmFix(D + (res.up + res.lo) / 2000)}</div><div><small>макс</small>${mmFix(D + res.up / 1000)}</div></div>
+      <div class="kv mt"><span>Допуск IT${t.grade}</span><b>${mmFix(res.it / 1000)} мм (${res.it} мкм)</b></div>
+      <div class="kv"><span>Интервал размеров</span><b>${rangeTxt(res.range[0], res.range[1])} мм</b></div>
+    </div>` : '';
+  return `<div class="ui-card">
+      ${seg('tolKind', t.kind, [['hole', '◯ Отверстие'], ['shaft', '● Вал']])}
+      <div class="input-group mt"><label>Номинальный размер, мм (необязательно, до 500)</label>
+        <input type="text" inputmode="decimal" id="tol-size" value="${esc(t.size)}" placeholder="например 20"></div>
+      ${sizeBad ? '<div class="muted" style="color:#C0392B">Размер должен быть больше 0 и не больше 500 мм.</div>' : ''}
+      <div class="chips">${TOL.POPULAR[t.kind].map(f => `<span class="chip ${f === fld ? 'on' : ''}" data-act="tolField" data-f="${f}">${f}</span>`).join('')}</div>
+      <div class="two-col mt">
+        <div class="input-group"><label>Основное отклонение</label><select id="tol-letter">${letters.map(l => `<option ${l === t.letter ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+        <div class="input-group"><label>Квалитет</label><select id="tol-grade">${grades.map(g => `<option value="${g}" ${g === t.grade ? 'selected' : ''}>${g}</option>`).join('')}</select></div>
+      </div>
+    </div>
+    ${result}
+    <div class="ui-card">
+      <div class="section-title">${fld} — ${t.kind === 'hole' ? 'отверстие' : 'вал'}, все интервалы</div>
+      <table class="tol-tbl"><thead><tr><th>Размер, мм</th><th>Верхнее</th><th>Нижнее</th><th>IT, мкм</th></tr></thead><tbody>
+      ${tbl.map(r => `<tr class="${res && r.sis.includes(res.si) ? 'hl' : ''}"><td>${rangeTxt(r.lo0, r.hi)}</td><td>${mm3(r.up)}</td><td>${mm3(r.lo)}</td><td>${r.it}</td></tr>`).join('')}
+      </tbody></table>
+      <div class="muted mt">Отклонения в мм. ${gost ? 'ГОСТ 25346-2013 и ГОСТ 25347-2013 идентичны ISO 286-1/286-2' : 'ISO 286-1/286-2 (в России — ГОСТ 25346/25347-2013, значения те же)'}.</div>
+    </div>`;
+}
+
+function viewTolFree() {
+  const t = ui.tol, gost = t.sys === 'gost', D = num(t.size);
+  const pick = (tb, D) => tb.ranges.findIndex(([lo, hi], i) => (i === 0 ? D >= lo : D > lo) && D <= hi);
+  const li = D > 0 ? pick(TOL.LIN, D) : -1, ei = D > 0 ? pick(TOL.EDGE, D) : -1;
+  const pm = v => (v == null ? '—' : '±' + String(v).replace('.', ','));
+  let res = '';
+  if (D > 0) {
+    const lin = li >= 0 ? TOL.LIN[t.cls][li] : null, edge = ei >= 0 ? TOL.EDGE[t.cls][ei] : null;
+    res = `<div class="ui-card tol-res"><div class="thr-title">${String(D).replace('.', ',')} мм · класс ${t.cls}</div>
+      <div class="kv mt"><span>Линейный размер</span><b>${lin == null ? 'не нормируется' : pm(lin) + ' → ' + mmFix(D - lin) + '…' + mmFix(D + lin)}</b></div>
+      <div class="kv"><span>Фаска / радиус такого размера</span><b>${edge == null ? 'не нормируется' : pm(edge)}</b></div>`;
+    if (gost) {
+      const si = TOL.subIdx(D);
+      if (si >= 0) {
+        const it = TOL.devAt('hole', 'H', t.t25670, si).it;
+        res += `<div class="kv"><span>По ГОСТ 25670 (IT${t.t25670}): отверстие H${t.t25670}</span><b>+${mmFix(it / 1000)} / 0</b></div>
+          <div class="kv"><span>вал h${t.t25670}</span><b>0 / −${mmFix(it / 1000)}</b></div>
+          <div class="kv"><span>прочие ±IT${t.t25670}/2</span><b>±${mmFix(it / 2000)}</b></div>`;
+      }
+    }
+    res += '</div>';
+  }
+  const linRows = TOL.LIN.ranges.map(([lo, hi], i) => `<tr class="${i === li ? 'hl' : ''}"><td>${rangeTxt(lo === 0.5 ? 0.5 : lo, hi).replace('св. 0,5', 'от 0,5')}</td>${['f', 'm', 'c', 'v'].map(c => `<td class="${c === t.cls ? 'col-on' : ''}">${pm(TOL.LIN[c][i])}</td>`).join('')}</tr>`).join('');
+  const edgeRows = TOL.EDGE.ranges.map(([lo, hi], i) => `<tr class="${i === ei ? 'hl' : ''}"><td>${hi === Infinity ? 'св. 6' : (i === 0 ? 'от 0,5 до 3' : 'св. 3 до 6')}</td>${['f', 'm', 'c', 'v'].map(c => `<td class="${c === t.cls ? 'col-on' : ''}">${pm(TOL.EDGE[c][i])}</td>`).join('')}</tr>`).join('');
+  const angRows = TOL.ANG.ranges.map((r, i) => `<tr><td>${r}</td>${['f', 'm', 'c', 'v'].map(c => `<td class="${c === t.cls ? 'col-on' : ''}">±${TOL.ANG[c][i]}</td>`).join('')}</tr>`).join('');
+  const head = `<thead><tr><th>Размер, мм</th><th>f</th><th>m</th><th>c</th><th>v</th></tr></thead>`;
+  let g25670 = '';
+  if (gost) {
+    const its = [12, 14, 16, 17];
+    const rowsIT = TOL.R.map(([lo, hi], ri) => { const it = TOL.IT[ri][t.t25670 - 1]; return `<tr><td>${rangeTxt(lo, hi)}</td><td>+${mmFix(it / 1000)}</td><td>−${mmFix(it / 1000)}</td><td>±${mmFix(it / 2000)}</td></tr>`; }).join('');
+    g25670 = `<div class="ui-card"><div class="section-title">ГОСТ 25670-83: «H${t.t25670}, h${t.t25670}, ±IT${t.t25670}/2»</div>
+      ${seg('tol25670', String(t.t25670), its.map(i => [String(i), 'IT' + i]))}
+      <table class="tol-tbl mt"><thead><tr><th>Размер, мм</th><th>H (отв.)</th><th>h (вал)</th><th>±IT/2</th></tr></thead><tbody>${rowsIT}</tbody></table>
+      <div class="muted mt">Старая, но распространённая запись на чертежах: «Неуказанные предельные отклонения размеров: H14, h14, ±IT14/2». Стандарт отменён, его заменил ГОСТ 30893.1.</div></div>`;
+  }
+  return `<div class="ui-card">
+      <div class="section-title">${gost ? 'ГОСТ 30893.1-2002 (ИСО 2768-1)' : 'ISO 2768-1'} — общие допуски</div>
+      ${seg('tolCls', t.cls, Object.keys(TOL.CLS).map(c => [c, c]))}
+      <div class="muted" style="margin-top:6px">${TOL.CLS[t.cls]}. На чертеже: «${gost ? 'Общие допуски по ГОСТ 30893.1 — ' + t.cls : 'ISO 2768-' + t.cls}».</div>
+      <div class="input-group mt"><label>Размер, мм (необязательно)</label><input type="text" inputmode="decimal" id="tol-size" value="${esc(t.size)}" placeholder="например 45"></div>
+    </div>
+    ${res}
+    <div class="ui-card"><div class="section-title">Линейные размеры, мм</div><table class="tol-tbl">${head}<tbody>${linRows}</tbody></table></div>
+    <div class="ui-card"><div class="section-title">Фаски и радиусы (притупления кромок), мм</div><table class="tol-tbl">${head}<tbody>${edgeRows}</tbody></table></div>
+    <div class="ui-card"><div class="section-title">Угловые размеры (по меньшей стороне угла, мм)</div><table class="tol-tbl">${head.replace('Размер, мм', 'Длина, мм')}<tbody>${angRows}</tbody></table></div>
+    ${g25670}`;
+}
+
+Object.assign(Actions, {
+  tolSys(d) { ui.tol.sys = d.v; tolSave(); rerender(); },
+  tolMode(d) { ui.tol.mode = d.v; tolSave(); rerender(); },
+  tolKind(d) {
+    const t = ui.tol; if (t.kind === d.v) return;
+    t.kind = d.v;
+    const map = t.kind === 'hole' ? TOL.HOLE : TOL.SHAFT;
+    const L = t.kind === 'hole' ? t.letter.toUpperCase() : t.letter.toLowerCase();
+    t.letter = map[L] ? L : (t.kind === 'hole' ? 'H' : 'h');
+    if (!map[t.letter].includes(t.grade)) t.grade = map[t.letter][0];
+    tolSave(); rerender();
+  },
+  tolField(d) {
+    const m = /^([A-Za-z]+)(\d+)$/.exec(d.f); if (!m) return;
+    ui.tol.letter = m[1]; ui.tol.grade = +m[2]; tolSave(); rerender();
+  },
+  tolCls(d) { ui.tol.cls = d.v; tolSave(); rerender(); },
+  tol25670(d) { ui.tol.t25670 = +d.v; tolSave(); rerender(); }
+});
+document.addEventListener('change', e => {
+  const id = e.target.id, t = ui.tol;
+  if (id === 'tol-letter') {
+    t.letter = e.target.value;
+    const gr = (t.kind === 'hole' ? TOL.HOLE : TOL.SHAFT)[t.letter];
+    if (!gr.includes(t.grade)) t.grade = gr.includes(7) ? 7 : gr[0];
+    tolSave(); rerender();
+  } else if (id === 'tol-grade') { t.grade = +e.target.value; tolSave(); rerender(); }
+  else if (id === 'tol-size') { tolSave(); rerender(); }
+});
+let tolTimer = null;
+document.addEventListener('input', e => {
+  if (e.target.id !== 'tol-size') return;
+  ui.tol.size = e.target.value;
+  clearTimeout(tolTimer);
+  tolTimer = setTimeout(() => {               // пересчёт без потери фокуса
+    const el = document.getElementById('tol-size'), pos = el ? el.selectionStart : null;
+    tolSave(); rerender();
+    const n = document.getElementById('tol-size');
+    if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (er) {} }
+  }, 250);
 });
 
 /* ===================== СТАРТ ===================== */
