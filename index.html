@@ -84,6 +84,13 @@ table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .user-row { padding: 10px 0; border-bottom: 1px solid #EEF2F6; }
 .user-row:last-of-type { border-bottom: none; }
 .user-head { display: flex; justify-content: space-between; align-items: center; }
+/* отчёт о партии */
+.report-big { font-size: 30px; font-weight: 900; color: #E28743; margin: 2px 0 6px; }
+.report-big small { font-size: 14px; color: #7B8E9E; font-weight: 700; }
+.hist-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #EEF2F6; cursor: pointer; font-size: 14px; }
+.hist-row:last-child { border-bottom: none; }
+.hist-row:active { background: #F8FAFC; }
+.cur-tag { font-size: 10px; font-weight: 800; color: #fff; background: #2EA043; border-radius: 6px; padding: 1px 6px; vertical-align: middle; }
 
 /* явка */
 .rs-c { position: relative; }
@@ -181,6 +188,8 @@ table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .input-group input, .input-group select, .input-group textarea { padding: 10px; border-radius: 12px; border: 1px solid #DCE3EB; font-size: 14px; font-weight: 600; background: #F8FAFC; color: #2B3A4A; outline: none; width: 100%; }
 .input-group textarea { font-family: monospace; font-weight: 500; resize: vertical; }
 .input-group input:focus, .input-group select:focus, .input-group textarea:focus { border-color: #4A90E2; background: #fff; }
+/* iOS: шрифт полей не меньше 16px (иначе Safari масштабирует и сбивает курсор), курсор — заметного цвета */
+.input-group input, .input-group select, .input-group textarea, .counter-input { font-size: 16px; caret-color: #E28743; }
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
 .action-button { width: 100%; background: #2B3A4A; color: #fff; border: none; padding: 14px; border-radius: 18px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; cursor: pointer; }
@@ -401,9 +410,10 @@ async function syncPush() {
       const A = R && !Sync.noAtt;                             // таблица явки есть в базе
       const ca = A ? changed('a') : [];
       if (ca.length) await up('attendance', ca);
-      const de = removed('e'), dm = removed('m');
+      const de = removed('e'), dm = removed('m'), dc = removed('c');
       const dr = R ? removed('r') : [], ds = R ? removed('s') : [], da = A ? removed('a') : [];
       if (de.length) await del('shift_entries', de);
+      if (dc.length) await del('tool_changes', dc);
       if (dr.length) await del('roster', dr);
       if (da.length) await del('attendance', da);
       if (ds.length) await del('staff', ds);
@@ -592,8 +602,8 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.13';
-const APP_DATE = '02.11.2026';
+const APP_VERSION = '1.14';
+const APP_DATE = '06.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => tabHtml() + footerHtml() + navHtml();
 
@@ -679,7 +689,7 @@ const todayEntry = (m, create) => {
 };
 
 /* ===================== МОДАЛЬНОЕ ОКНО ===================== */
-function modal(title, fields, onSave, onDelete) {
+function modal(title, fields, onSave, onDelete, init) {
   const w = document.createElement('div');
   w.className = 'modal-bg';
   const fieldHtml = f => {
@@ -687,7 +697,10 @@ function modal(title, fields, onSave, onDelete) {
     let input;
     if (f.type === 'select') input = `<select name="${f.k}">${f.options.map(o => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
     else if (f.type === 'textarea') input = `<textarea name="${f.k}" rows="${f.rows || 4}">${esc(v)}</textarea>`;
-    else input = `<input name="${f.k}" type="text" ${f.type === 'number' ? 'inputmode="decimal"' : ''} value="${esc(v)}" placeholder="${esc(f.ph || '')}">`;
+    else {
+      const isNum = f.type === 'number', zero = isNum && String(v).trim() !== '' && num(v) === 0;   // 0 не подставляем — показываем подсказкой
+      input = `<input name="${f.k}" type="text" ${isNum ? 'inputmode="decimal"' : ''} value="${zero ? '' : esc(v)}" placeholder="${esc(f.ph || (isNum ? '0' : ''))}">`;
+    }
     return `<div class="input-group"><label>${esc(f.label)}</label>${input}</div>`;
   };
   w.innerHTML = `<div class="modal"><h3>${esc(title)}</h3>${fields.map(fieldHtml).join('')}
@@ -704,9 +717,29 @@ function modal(title, fields, onSave, onDelete) {
       if (onSave(out) !== false) w.remove();
     }
   });
+  // числовое поле при касании выделяется целиком — новое значение заменяет старое, а не дописывается к нему
+  w.addEventListener('focusin', e => {
+    const el = e.target;
+    if (el.matches && el.matches('input[inputmode="decimal"]')) setTimeout(() => { try { el.setSelectionRange(0, el.value.length); } catch (er) {} }, 0);
+  });
   document.body.appendChild(w);
+  if (init) init(w);
+  const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   const first = w.querySelector('input,textarea');
-  if (first) setTimeout(() => first.focus(), 50);
+  if (first && !touch) first.focus();                               // сразу, без задержки (иначе фокус мог «перепрыгнуть» во время ввода); на телефоне автофокус сбивает курсор iOS
+}
+document.addEventListener('focusin', e => {
+  const el = e.target;
+  if (el.matches && el.matches('#app input[inputmode="decimal"], #app input[inputmode="numeric"]') && !el.closest('.modal'))
+    setTimeout(() => { try { el.setSelectionRange(0, el.value.length); } catch (er) {} }, 0);
+});
+/* цанга Main по умолчанию = Ø прутка (пока её не изменили вручную) */
+function autoCollet(w) {
+  const dia = w.querySelector('[name="dia"]'), cm = w.querySelector('[name="cm"]');
+  if (!dia || !cm) return;
+  let auto = cm.value.trim() === '' || cm.value.trim() === fP(num(dia.value));
+  dia.addEventListener('input', () => { if (auto) cm.value = num(dia.value) > 0 ? fP(num(dia.value)) : ''; });
+  cm.addEventListener('input', () => { auto = cm.value.trim() === ''; });
 }
 
 /* ===================== СХЕМА СТАНКА (SVG) ===================== */
@@ -757,6 +790,7 @@ function viewList() {
     </div>`;
   }).join('');
   return header('SwissControl', 'Мониторинг автоматов ЧПУ', false) + adminBanner() + (cards || '<div class="empty">Станков пока нет</div>') +
+    (db.machines.length ? '<button class="action-button secondary" data-act="allHistory" style="margin-bottom:12px">🗂 История деталей по всем станкам</button>' : '') +
     (can('setup') ? '<button class="action-button" data-act="addMachine">+ Добавить станок</button>' : '');
 }
 
@@ -881,10 +915,11 @@ function viewTools() {
     ${can('setup') ? '<button class="action-button mt" data-act="toolAdd">+ Добавить инструмент</button>' : can('produce') ? '<div class="muted mt">Заменили инструмент? Нажмите «Замена» рядом с ним и укажите причину.</div>' : ''}</div>`;
 }
 
+const canEditChange = c => can('editOthers') || (can('produce') && c.who === user);
 function viewChanges() {
   const m = curM();
   const items = m.changes.slice().reverse().map(c => `<div class="log-item">
-    <div class="log-top"><span>${fmtDT(c.ts)}</span><span>👤 ${esc(c.who || '—')}</span></div>
+    <div class="log-top"><span>${fmtDT(c.ts)}</span><span>👤 ${esc(c.who || '—')}${canEditChange(c) ? ` <button class="mini-btn" data-act="changeEdit" data-id="${c.id}">✎</button>` : ''}</span></div>
     <div><span class="tool-id">${esc(c.code)}</span><b>${esc(c.tool)}</b> — ${esc(c.reason)}</div>
     ${c.spec ? `<div class="muted">Установлено: ${esc(c.spec)}</div>` : ''}
     ${c.comment ? `<div class="muted">${esc(c.comment)}</div>` : ''}
@@ -1083,7 +1118,7 @@ function applyMachine(m, o) {
   m.num = o.num || m.num; m.model = o.model;
   m.part = { name: o.partName, len: num(o.len), qty: num(o.qty) };
   m.bar.dia = num(o.dia);
-  m.collets = { main: o.cm, back: o.cb };
+  m.collets = { main: o.cm || (num(o.dia) > 0 ? fP(num(o.dia)) : ''), back: o.cb };
   m.cutW = num(o.cutW);
   m.cycle = Math.max(0, num(o.cycle));
   m.eff = Math.min(100, Math.max(1, num(o.eff) || 85));
@@ -1099,7 +1134,8 @@ const Actions = {
     if (ui.usersOpen) { ui.usersOpen = false; return render(); }
     if (ui.view === 'machine') ui.view = 'list';
     else if (ui.view === 'day') ui.view = 'calendar';
-    else if (ui.view === 'batch') ui.view = 'history';
+    else if (ui.view === 'batch') ui.view = ui.batchFrom === 'all' ? 'allHistory' : 'history';
+    else if (ui.view === 'allHistory') ui.view = 'list';
     else ui.view = 'machine';
     render();
   },
@@ -1114,7 +1150,7 @@ const Actions = {
     const m = newMachine(pad(db.machines.length + 1), '');
     modal('Новый станок', machineFields(m), o => {
       applyMachine(m, o); db.machines.push(m); save(); render();
-    });
+    }, null, autoCollet);
   },
   editMachine() {
     const m = curM();
@@ -1128,7 +1164,7 @@ const Actions = {
     }, () => {
       for (const [id, b] of Object.entries(db.batches)) if (b.machine_id === m.id) delete db.batches[id];
       db.machines = db.machines.filter(x => x.id !== m.id); save(); ui.view = 'list'; render();
-    });
+    }, autoCollet);
     if (!archOk || !busy) return openSetup('Наладка станка');
     choice('Партия окончена?', `Деталь «${esc(m.part.name || 'без названия')}»: сделано ${fmtNum(doneOf(m), 0)} из ${fmtNum(num(m.part.qty), 0)} шт.<br><br>
       <b>Да</b> — деталь уйдёт в архив, начнётся новая партия: параметры детали, программа, чертёж и счётчики сбросятся (история смен сохранится).<br>
@@ -1175,6 +1211,31 @@ const Actions = {
       t.spec = o.spec || t.spec;
       save(); rerender();
     });
+  },
+
+  changeEdit(d) {
+    const m = curM(), c = m.changes.find(x => x.id === d.id);
+    if (!c || !canEditChange(c)) return;
+    const dt = new Date(c.ts);
+    const fields = [
+      { k: 'tool', label: 'Инструмент', type: 'select', options: [...new Set([...m.tools.map(t => t.code + ' ' + t.name), c.code + ' ' + c.tool])], value: c.code + ' ' + c.tool },
+      { k: 'reason', label: 'Причина', type: 'select', options: [...new Set([...REASONS, c.reason])], value: c.reason },
+      { k: 'spec', label: 'Что установлено (пластина / размер)', value: c.spec || '' },
+      { k: 'comment', label: 'Комментарий', value: c.comment || '' },
+      { k: 'date', label: 'Дата и время (ДД.ММ.ГГГГ ЧЧ:ММ)', value: `${pad(dt.getDate())}.${pad(dt.getMonth() + 1)}.${dt.getFullYear()} ${pad(dt.getHours())}:${pad(dt.getMinutes())}` }
+    ];
+    if (can('editOthers')) fields.push({ k: 'who', label: 'Кто менял', value: c.who || '' });
+    modal('Запись о замене', fields, o => {
+      const mt = /^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})$/.exec(o.date);
+      if (!mt) { alert('Дата в формате ДД.ММ.ГГГГ ЧЧ:ММ, например 06.11.2026 15:40'); return false; }
+      const t = m.tools.find(x => x.code + ' ' + x.name === o.tool);
+      if (t) { c.code = t.code; c.tool = t.name; }
+      c.reason = o.reason; c.spec = o.spec; c.comment = o.comment;
+      c.ts = new Date(+mt[3], +mt[2] - 1, +mt[1], +mt[4], +mt[5]).toISOString();
+      if (can('editOthers') && o.who) c.who = o.who;
+      m.changes.sort((a, b) => (a.ts < b.ts ? -1 : 1));
+      save(); rerender();
+    }, () => { m.changes = m.changes.filter(x => x.id !== c.id); save(); rerender(); });
   },
 
   /* программа */
@@ -2578,26 +2639,40 @@ async function batchDrawingImage(b) {
 }
 
 /* текущая деталь → в архив, станок → к новой партии */
-async function archiveCurrent(m) {
-  const now = new Date().toISOString();
-  const img = await machineDrawingImage(m);
-  const per = {}, days = [];
+/* снимок партии: параметры наладки + итоги (для архива и для отчёта по текущей партии) */
+function batchSnapshot(m, endIso) {
+  const per = {}, perN = {}, days = [];
   for (const [day, arr] of Object.entries(m.shifts || {})) for (const e of arr) {
     if (!inBatch(m, e)) continue;
-    per[e.who || '—'] = (per[e.who || '—'] || 0) + num(e.count);
-    if (num(e.count) > 0) days.push(day);
+    const w = e.who || '—';
+    per[w] = (per[w] || 0) + num(e.count);
+    if (num(e.count) > 0) { perN[w] = (perN[w] || 0) + 1; days.push(day); }
   }
   days.sort();
   const start = m.batchStart || (days[0] ? days[0] + 'T00:00:00' : null);
   const from = start ? new Date(start).toISOString() : null;
   const changes = (m.changes || []).filter(c => !from || c.ts >= from).map(c => Object.assign({}, c));
-  const data = {
+  return {
     name: m.part.name, len: m.part.len, qty: m.part.qty, done: doneOf(m), dia: m.bar.dia,
     collets: Object.assign({}, m.collets), cutW: m.cutW, cycle: m.cycle, eff: m.eff, barCfg: Object.assign({}, m.barCfg),
     tools: (m.tools || []).map(t => ({ code: t.code, name: t.name, spec: t.spec })),
-    program: Object.assign({}, m.program), hasDrawing: !!img, start, end: now, per, changes,
+    program: Object.assign({}, m.program), hasDrawing: !!(m.drawing || m.hasDrawing), start, end: endIso, per, perN, changes,
     machineNum: m.num, model: m.model, batchId: m.batchId || null, by: user
   };
+}
+/* расход материала на партию: детали + огарки (как в калькуляторе прутка) */
+function batchMaterial(d) {
+  const bc = d.barCfg || {}, perPart = num(d.len) + num(d.cutW) + num(bc.face);
+  const parts = num(d.done) * perPart, usable = num(bc.barLen) * 1000 - num(bc.remnant);
+  const exact = usable > 0 ? parts / usable : 0;
+  return { perPart, parts, rem: exact * num(bc.remnant), all: parts + exact * num(bc.remnant), bars: Math.ceil(exact - 1e-9) };
+}
+
+async function archiveCurrent(m) {
+  const now = new Date().toISOString();
+  const img = await machineDrawingImage(m);
+  const data = batchSnapshot(m, now);
+  data.hasDrawing = !!img;
   const b = { id: uid(), machine_id: m.id, data, finished_at: now };
   if (!Sync.enabled && img) b.drawing = img;
   db.batches[b.id] = b;
@@ -2639,7 +2714,7 @@ async function applyBatch(m, b) {
 
 function viewHistory() {
   const m = curM(), list = batchesOf(m);
-  const cur = `<div class="ui-card"><div class="card-tag">Сейчас на станке</div>
+  const cur = `<div class="ui-card machine-card" data-act="batchOpen" data-id="current"><div class="card-tag">Сейчас на станке · отчёт ›</div>
     <div class="card-title" style="margin-bottom:4px">${esc(m.part.name || 'Деталь не задана')}</div>
     <div class="muted">${m.batchStart ? 'с ' + dmy(m.batchStart) + ' · ' : ''}сделано ${fmtNum(doneOf(m), 0)} из ${fmtNum(num(m.part.qty), 0)} шт</div></div>`;
   const rows = list.map(b => {
@@ -2657,25 +2732,42 @@ function viewHistory() {
 }
 
 function viewBatch() {
-  const m = curM(), b = db.batches[ui.bid];
+  const m = curM(), isCur = ui.bid === 'current';
+  const b = isCur ? { id: 'current', machine_id: m.id, data: batchSnapshot(m, null) } : db.batches[ui.bid];
   if (!b) { ui.view = 'history'; return viewHistory(); }
+  if (isCur && m.hasDrawing && !m.drawing && !ui.batchImgLoading) {
+    ui.batchImgLoading = 'cur';
+    machineDrawingImage(m).then(img => { ui.batchImgLoading = null; if (img) { m.drawing = img; if (ui.view === 'batch') rerender(); } });
+  }
   const d = b.data, kv = (a, v) => `<div class="kv"><span>${a}</span><b>${v}</b></div>`;
   const days = d.start && d.end ? (new Date(d.end) - new Date(d.start)) / 86400e3 : null;
   const per = Object.entries(d.per || {}).sort((a, c) => c[1] - a[1]);
-  const img = batchImg[b.id] || b.drawing;
-  if (d.hasDrawing && !img && !ui.batchImgLoading) {
+  const img = isCur ? m.drawing : (batchImg[b.id] || b.drawing);
+  if (!isCur && d.hasDrawing && !img && !ui.batchImgLoading) {
     ui.batchImgLoading = b.id;
     batchDrawingImage(b).then(() => { ui.batchImgLoading = null; if (ui.view === 'batch' && ui.bid === b.id) rerender(); });
   }
   const bc = d.barCfg || {};
   const perPart = num(d.len) + num(d.cutW) + num(bc.face);
-  return header(d.name || 'Деталь', 'Архив · станок №' + m.num, true) +
-    `<div class="ui-card"><div class="card-tag">Итоги партии</div>
-      ${kv('Сделано', fmtNum(num(d.done), 0) + ' из ' + fmtNum(num(d.qty), 0) + ' шт')}
-      ${kv('Период', dmy(d.start) + ' – ' + dmy(d.end) + (days != null ? ' (' + fmtNum(Math.max(days, 0), 1) + ' сут)' : ''))}
-      ${per.length ? `<div class="section-title mt">Кто сколько сделал</div>${per.map(([w, c]) => kv('👤 ' + esc(w), fmtNum(c, 0) + ' шт')).join('')}` : ''}
+  const mat = batchMaterial(d), chg = d.changes || [];
+  const byTool = {}; chg.forEach(c => { const k = c.code + ' ' + c.tool; byTool[k] = (byTool[k] || 0) + 1; });
+  const pct = num(d.qty) ? Math.round(num(d.done) / num(d.qty) * 100) : 0;
+  return header(d.name || 'Деталь', (isCur ? 'Текущая партия' : 'Архив') + ' · станок №' + m.num, true) +
+    `<div class="ui-card report-card"><div class="card-tag">📋 Отчёт о партии${isCur ? ' (идёт)' : ''}</div>
+      <div class="report-big">${fmtNum(num(d.done), 0)} <small>из ${fmtNum(num(d.qty), 0)} шт · ${pct}%</small></div>
+      ${kv('Период', dmy(d.start) + ' – ' + (isCur ? 'сейчас' : dmy(d.end)) + (days != null ? ' (' + fmtNum(Math.max(days, 0), 1) + ' сут)' : ''))}
+      <div class="section-title mt">👥 Кто сколько сделал</div>
+      ${per.length ? per.map(([w, c]) => kv('👤 ' + esc(w) + (d.perN && d.perN[w] ? ` <span class="muted">· ${d.perN[w]} смен</span>` : ''), fmtNum(c, 0) + ' шт')).join('') : '<div class="empty">Выработка не вносилась</div>'}
+      <div class="section-title mt">📏 Материал${d.dia ? ' · пруток Ø' + esc(d.dia) + ' мм' : ''}</div>
+      ${kv('Ушло на партию (с огарками)', fmtNum(mat.all / 1000) + ' м')}
+      ${kv('Прутков по ' + fmtNum(num((d.barCfg || {}).barLen)) + ' м', '≈ ' + mat.bars + ' шт')}
+      ${kv('На детали / огарки', fmtNum(mat.parts / 1000) + ' м / ' + fmtNum(mat.rem / 1000) + ' м')}
+      ${kv('Расход на 1 деталь', fmtNum(mat.perPart) + ' мм')}
+      <div class="section-title mt">🔄 Замены инструмента: ${chg.length}</div>
+      ${chg.length ? Object.entries(byTool).sort((a, c) => c[1] - a[1]).map(([t, n]) => kv(esc(t), n + ' раз')).join('') : '<div class="empty">Замен не было</div>'}
+      <div class="muted mt" style="font-size:12px">Материал — расчётный: сделано × (длина + отрезной + торец) плюс огарки по параметрам прутка.</div>
     </div>
-    ${can('setup') ? '<button class="action-button orange" data-act="batchReuse" data-id="' + b.id + '">🔁 Наладить повторно</button><div class="muted" style="margin:6px 4px 14px">Все параметры ниже будут установлены на станок — по ним делается реальная наладка.</div>' : ''}
+    ${can('setup') && !isCur ? '<button class="action-button orange" data-act="batchReuse" data-id="' + b.id + '">🔁 Наладить повторно</button><div class="muted" style="margin:6px 4px 14px">Все параметры ниже будут установлены на станок — по ним делается реальная наладка.</div>' : ''}
     <div class="ui-card"><div class="card-tag">Наладка</div>
       ${kv('Деталь', esc(d.name || '—'))}
       ${kv('Длина детали', fmtNum(num(d.len)) + ' мм')}
@@ -2697,12 +2789,30 @@ function viewBatch() {
     <div class="ui-card"><div class="card-tag">Чертёж</div>
       ${d.hasDrawing ? (img ? `<img class="draw-img" src="${img}" data-act="batchDrawView">` : '<div class="empty">⏳ Загрузка чертежа…</div>') : '<div class="empty">Чертёж не сохранён</div>'}</div>
     ${(d.changes || []).length ? `<div class="ui-card"><div class="card-tag">Замены инструмента за партию</div>${d.changes.slice().reverse().map(c => `<div class="log-item"><div class="log-top"><span>${fmtDT(c.ts)}</span><span>👤 ${esc(c.who || '—')}</span></div><div><span class="tool-id">${esc(c.code)}</span><b>${esc(c.tool)}</b> — ${esc(c.reason)}</div></div>`).join('')}</div>` : ''}
-    ${can('setup') ? '<button class="action-button secondary" style="color:#C0392B" data-act="batchDel" data-id="' + b.id + '">Удалить из архива</button>' : ''}`;
+    ${can('setup') && !isCur ? '<button class="action-button secondary" style="color:#C0392B" data-act="batchDel" data-id="' + b.id + '">Удалить из архива</button>' : ''}`;
 }
-Object.assign(views, { history: viewHistory, batch: viewBatch });
+function viewAllHistory() {
+  const blocks = db.machines.map(m => {
+    const list = batchesOf(m);
+    const curRow = m.part.name || doneOf(m) ? `<div class="hist-row" data-act="batchOpen" data-id="current" data-mid="${m.id}" data-from="all">
+        <div><b>${esc(m.part.name || 'Без названия')}</b> <span class="cur-tag">сейчас</span><div class="muted">${m.batchStart ? 'с ' + dmy(m.batchStart) : ''}</div></div>
+        <b>${fmtNum(doneOf(m), 0)} / ${fmtNum(num(m.part.qty), 0)}</b></div>` : '';
+    const rows = list.map(b => { const d = b.data; return `<div class="hist-row" data-act="batchOpen" data-id="${b.id}" data-mid="${m.id}" data-from="all">
+        <div><b>${esc(d.name || 'Без названия')}</b><div class="muted">${dmy(d.start)} – ${dmy(d.end)} · замен: ${(d.changes || []).length}</div></div>
+        <b>${fmtNum(num(d.done), 0)} шт</b></div>`; }).join('');
+    if (!curRow && !rows) return '';
+    return `<div class="ui-card"><div class="card-tag">Станок №${esc(m.num)}${m.model ? ' · ' + esc(m.model) : ''}</div>${curRow}${rows}</div>`;
+  }).join('');
+  return header('История деталей', 'Все станки', true) +
+    (Sync.enabled && Sync.noV4 && can('setup') ? '<div class="warn-box">🗂 Чтобы детали попадали в архив, выполните один раз <b>setup4.sql</b> в Supabase.</div>' : '') +
+    (blocks || '<div class="ui-card"><div class="empty">Пока нет деталей</div></div>') +
+    '<div class="muted" style="margin:0 4px">Нажмите на деталь, чтобы открыть отчёт о партии: кто сколько сделал, расход материала, замены инструмента.</div>';
+}
+Object.assign(views, { history: viewHistory, batch: viewBatch, allHistory: viewAllHistory });
 
 Object.assign(Actions, {
-  batchOpen(d) { ui.bid = d.id; ui.view = 'batch'; render(); },
+  batchOpen(d) { if (d.mid) ui.mid = d.mid; ui.batchFrom = d.from || 'machine'; ui.bid = d.id; ui.view = 'batch'; render(); },
+  allHistory() { ui.view = 'allHistory'; render(); },
   batchDrawView() {
     const b = db.batches[ui.bid], img = b && (batchImg[b.id] || b.drawing); if (!img) return;
     const w = document.createElement('div'); w.className = 'fullscreen'; w.innerHTML = `<img src="${img}">`; w.onclick = () => w.remove(); document.body.appendChild(w);
