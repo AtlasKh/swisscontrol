@@ -91,9 +91,11 @@ table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .hist-row:last-child { border-bottom: none; }
 .hist-row:active { background: #F8FAFC; }
 /* предложения смен */
-.rs-c.prop { box-shadow: inset 0 0 0 2px #E28743; background: repeating-linear-gradient(45deg, #FFF7EF, #FFF7EF 4px, #FDEBDC 4px, #FDEBDC 8px); color: #B4561B; font-style: italic; }
+.rs-c.prop { box-shadow: inset 0 0 0 2px #E28743; }
+.rs-c.prop:not(.d):not(.n) { background: repeating-linear-gradient(45deg, #FFF7EF, #FFF7EF 4px, #FDEBDC 4px, #FDEBDC 8px); color: #B4561B; font-style: italic; }
 .roster tr.my-row td.rs-name { background: #FFF3E6; color: #E28743; }
 .rs-c.prop.any { font-size: 10px; letter-spacing: -.5px; }
+.rs-c .pp { position: absolute; top: 1px; right: 2px; font-size: 8px; font-style: normal; font-weight: 900; color: #E28743; line-height: 1; letter-spacing: -.3px; }
 .rs-c.prop-tap { cursor: pointer; outline: 1px dashed #E2A06B; outline-offset: -3px; }
 .tab { position: relative; }
 .tab-badge { position: absolute; top: 3px; left: 54%; background: #E28743; color: #fff; font-size: 10px; border-radius: 9px; padding: 1px 5px; line-height: 1.3; }
@@ -649,7 +651,7 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.17';
+const APP_VERSION = '1.18';
 const APP_DATE = '08.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
@@ -1987,7 +1989,8 @@ function viewSchedule() {
         const pp = propsOn() ? propPending(x.iso, p.id) : null;                // предложение на рассмотрении
         const mineTap = proposing && p.id === meS.id && x.iso >= todayIso;
         const act = editing ? `data-act="rosterTap" data-day="${x.iso}" data-sid="${p.id}"` : mineTap ? `data-act="propTap" data-day="${x.iso}" data-sid="${p.id}"` : '';
-        const content = pp ? PROP_L[pp.shift] + '?' : v === 'd' ? 'Д' : v === 'n' ? 'Н' : fact ? (fact.shift === 'd' ? 'д' : 'н') : '';
+        const planL = v === 'd' ? 'Д' : v === 'n' ? 'Н' : fact ? (fact.shift === 'd' ? 'д' : 'н') : '';
+        const content = pp ? (planL ? planL + `<i class="pp">${PROP_L[pp.shift]}?</i>` : PROP_L[pp.shift] + '?') : planL;
         return `<td class="rs-c ${v || ''} ${ac} ${pp ? 'prop' + (pp.shift === 'any' ? ' any' : '') : ''} ${mineTap ? 'prop-tap' : ''} ${x.iso === todayIso ? 'today' : ''}" ${act}>${content}</td>`;
       }).join('')}</tr>`;
     }).join('');
@@ -2007,7 +2010,7 @@ function viewSchedule() {
       ${canEdit ? `<div class="two-col mt">
         <button class="action-button ${editing ? 'orange' : ''}" data-act="schedEdit">${editing ? '✅ Готово' : '✏️ Редактировать'}</button>
         <button class="action-button secondary" data-act="schedStaff">👥 Сотрудники</button></div>
-        ${editing ? '<div class="muted mt">Тап по клетке: выходной → Д → Н → выходной. Тап по имени — заполнить по шаблону.</div>' : ''}` : ''}
+        ${editing ? `<div class="muted mt">Тап по клетке: выходной → Д → Н → выходной. Тап по имени — заполнить по шаблону.${propsOn() ? ' Если поставите то же, что предложил оператор, предложение одобрится автоматически' + (ui.sched.autoIds && ui.sched.autoIds.size ? ` <b>(одобрено: ${ui.sched.autoIds.size})</b>` : '') + '.' : ''}</div>` : ''}` : ''}
       ${attOn() && (can('attView') || can('sched')) ? `<div class="two-col mt">${can('attView') ? '<button class="action-button secondary" data-act="schedAtt">🕒 Явка</button>' : ''}
         ${can('sched') ? '<button class="action-button secondary" data-act="schedQr">🔳 QR для печати</button>' : ''}</div>` : ''}
     </div>
@@ -2051,12 +2054,13 @@ Object.assign(Actions, {
     ui.sched.month = new Date(m.getFullYear(), m.getMonth() + num(d.dir), 1);
     ui.sched.scrollToday = true; render();
   },
-  schedEdit() { if (schedCanEdit()) { ui.sched.edit = !ui.sched.edit; rerender(); } },
+  schedEdit() { if (schedCanEdit()) { ui.sched.edit = !ui.sched.edit; ui.sched.autoIds = new Set(); ui.sched.prop = false; rerender(); } },
   schedStaff() { if (schedCanEdit()) { ui.sched.view = 'staff'; render(); } },
   rosterTap(d) {
     if (!schedCanEdit() || !ui.sched.edit) return;
     const cur = rosterGet(d.day, d.sid);
     rosterSet(d.day, d.sid, cur === null ? 'd' : cur === 'd' ? 'n' : null);
+    propSyncCell(d.day, d.sid);
     save(); rerender();
   },
   rosterFill(d) {
@@ -2076,6 +2080,7 @@ Object.assign(Actions, {
         if (pat === 'wd-d' || pat === 'wd-n') v = x.dow >= 1 && x.dow <= 5 ? pat.slice(3) : null;
         else v = pat[i % pat.length];
         rosterSet(x.iso, p.id, v);
+        propSyncCell(x.iso, p.id);
       });
       save(); rerender();
     });
@@ -2747,6 +2752,21 @@ function viewProps() {
     </div>`).join('') +
     (!pend.length ? '<div class="ui-card"><div class="empty">Новых предложений нет</div></div>' : '') +
     (recent.length ? `<div class="ui-card"><div class="section-title">Последние решения</div>${recent.map(x => `<div class="prop-done">${x.status === 'approved' ? '✅' : '❌'} ${esc(staffName(x.staff_id))} · ${dayTxt(x.day)}: ${PROP_TXT[x.shift]}<span class="muted"> — ${esc(x.decided_by || '')}</span></div>`).join('')}</div>` : '');
+}
+
+/* Правка графика вручную: если в клетке теперь то же, что предложил оператор, — предложение одобряется само.
+   Если в этом же сеансе редактирования клетку перетапали дальше — одобрение снимается обратно. */
+function propSyncCell(iso, sid) {
+  if (!propsOn()) return;
+  const x = db.props[iso + '_' + sid]; if (!x) return;
+  const v = rosterGet(iso, sid);
+  const match = x.shift === 'off' ? v === null : x.shift === 'any' ? (v === 'd' || v === 'n') : v === x.shift;
+  const ses = ui.sched.autoIds || (ui.sched.autoIds = new Set());
+  if (x.status === 'pending' && match) {
+    x.status = 'approved'; x.decided_by = user + ' (в графике)'; x.decided_at = new Date().toISOString(); ses.add(x.id);
+  } else if (x.status === 'approved' && ses.has(x.id) && !match) {
+    x.status = 'pending'; x.decided_by = null; x.decided_at = null; ses.delete(x.id);
+  }
 }
 
 function propDecide(list, ok, as) {
