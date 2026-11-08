@@ -93,6 +93,7 @@ table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 /* предложения смен */
 .rs-c.prop { box-shadow: inset 0 0 0 2px #E28743; background: repeating-linear-gradient(45deg, #FFF7EF, #FFF7EF 4px, #FDEBDC 4px, #FDEBDC 8px); color: #B4561B; font-style: italic; }
 .roster tr.my-row td.rs-name { background: #FFF3E6; color: #E28743; }
+.rs-c.prop.any { font-size: 10px; letter-spacing: -.5px; }
 .rs-c.prop-tap { cursor: pointer; outline: 1px dashed #E2A06B; outline-offset: -3px; }
 .tab { position: relative; }
 .tab-badge { position: absolute; top: 3px; left: 54%; background: #E28743; color: #fff; font-size: 10px; border-radius: 9px; padding: 1px 5px; line-height: 1.3; }
@@ -324,7 +325,8 @@ const Sync = { enabled: CLOUD, ready: false, busy: false, again: false, dirty: f
   noRoster: false,     // noRoster = в базе ещё нет таблиц графика (не выполнен setup2.sql)
   noAtt: false,        // noAtt = в базе ещё нет таблицы явки (не выполнен setup3.sql)
   noV4: false,         // noV4 = нет архива партий и пользователей (не выполнен setup4.sql)
-  noV5: false };       // noV5 = нет таблицы предложений смен (не выполнен setup5.sql)
+  noV5: false,         // noV5 = нет таблицы предложений смен (не выполнен setup5.sql)
+  schema: 0 };         // версия базы из app_meta (6 = выполнен setup6.sql)
 const SYNC_KEYS = ['m', 'e', 'c', 's', 'r', 'a', 'b', 'u', 'p'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
@@ -468,7 +470,7 @@ function save() {
 
 /* получение данных с сервера. Возвращает true, если что-то изменилось */
 async function syncPull(first) {
-  const flags0 = [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5].join();   // смена состояния базы (выполнен SQL) — тоже повод перерисовать
+  const flags0 = [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5, Sync.schema].join();   // смена состояния базы (выполнен SQL) — тоже повод перерисовать
   const [ms, es, cs] = await Promise.all([
     restAll('machines?select=id,data&order=id'),
     restAll('shift_entries?select=*&order=id'),
@@ -494,6 +496,14 @@ async function syncPull(first) {
     Sync.noV4 = false;
   } catch (e) {
     if (/PGRST2|42P01|does not exist|schema cache|^404/.test(e.message)) Sync.noV4 = true;
+    else throw e;
+  }
+  try {                                            // метка версии базы (появляется после setup6.sql)
+    const meta = await rest('app_meta?select=key,value');
+    const row = (meta || []).find(r => r.key === 'schema');
+    Sync.schema = row ? +row.value || 0 : 0;
+  } catch (e) {
+    if (/PGRST2|42P01|does not exist|schema cache|^404/.test(e.message)) Sync.schema = 0;
     else throw e;
   }
   let ps = [];
@@ -529,7 +539,7 @@ async function syncPull(first) {
     return true;
   }
   if (Sync.dirty || Sync.busy || Sync.queued) return false;   // у нас есть неотправленные правки — не затираем
-  const flagsChanged = flags0 !== [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5].join();
+  const flagsChanged = flags0 !== [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5, Sync.schema].join();
   const old = {};
   db.machines.forEach(m => { old[m.id] = m; });
   const byId = {};
@@ -639,7 +649,7 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.16';
+const APP_VERSION = '1.17';
 const APP_DATE = '08.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
@@ -1978,7 +1988,7 @@ function viewSchedule() {
         const mineTap = proposing && p.id === meS.id && x.iso >= todayIso;
         const act = editing ? `data-act="rosterTap" data-day="${x.iso}" data-sid="${p.id}"` : mineTap ? `data-act="propTap" data-day="${x.iso}" data-sid="${p.id}"` : '';
         const content = pp ? PROP_L[pp.shift] + '?' : v === 'd' ? 'Д' : v === 'n' ? 'Н' : fact ? (fact.shift === 'd' ? 'д' : 'н') : '';
-        return `<td class="rs-c ${v || ''} ${ac} ${pp ? 'prop' : ''} ${mineTap ? 'prop-tap' : ''} ${x.iso === todayIso ? 'today' : ''}" ${act}>${content}</td>`;
+        return `<td class="rs-c ${v || ''} ${ac} ${pp ? 'prop' + (pp.shift === 'any' ? ' any' : '') : ''} ${mineTap ? 'prop-tap' : ''} ${x.iso === todayIso ? 'today' : ''}" ${act}>${content}</td>`;
       }).join('')}</tr>`;
     }).join('');
     const cov = (sh, label) => `<tr class="rs-cov"><td class="rs-name">${label}</td>${days.map(x => {
@@ -2675,8 +2685,9 @@ document.addEventListener('input', e => {
    Наладчик и руководство одобряют или отклоняют: по одному, все за дату или все сразу.
    Одобренное предложение записывается в график.
    ===================================================================== */
-const PROP_L = { d: 'Д', n: 'Н', off: 'В' };
-const PROP_TXT = { d: '☀️ день', n: '🌙 ночь', off: 'выходной' };
+const PROP_L = { d: 'Д', n: 'Н', off: 'В', any: 'Д/Н' };
+const PROP_TXT = { d: '☀️ день', n: '🌙 ночь', off: 'выходной', any: '☀️/🌙 любая смена' };
+const anyOn = () => !Sync.enabled || Sync.schema >= 6;          // «любая смена» доступна (выполнен setup6.sql)
 const propsOn = () => !(Sync.enabled && (Sync.noRoster || Sync.noV5));
 const propPending = (iso, sid) => { const x = db.props[iso + '_' + sid]; return x && x.status === 'pending' ? x : null; };
 const propPendingAll = () => Object.values(db.props).filter(x => x.status === 'pending' && db.staff.some(s => s.id === x.staff_id))
@@ -2690,6 +2701,8 @@ function propCard() {
   if (Sync.enabled && Sync.noV5 && !Sync.noRoster && (can('sched') || isOwner()))
     return '<div class="ui-card"><div class="warn-box" style="margin:0">📝 Чтобы операторы могли предлагать смены, выполните один раз <b>setup5.sql</b> в Supabase.</div></div>';
   let out = '';
+  if (approver && Sync.enabled && Sync.schema < 6 && (can('sched') || isOwner()))
+    out += '<div class="ui-card"><div class="warn-box" style="margin:0">☀️/🌙 Чтобы операторы могли отмечать «любая смена», выполните один раз <b>setup6.sql</b> в Supabase.</div></div>';
   if (approver) {
     const n = propPendingAll().length;
     out += `<div class="ui-card users-banner" data-act="schedProps"><span>📝 Предложения смен</span>${n ? `<b class="pend-badge">${n} на рассмотрении</b>` : '<span class="muted">нет новых ›</span>'}</div>`;
@@ -2705,9 +2718,9 @@ function propCard() {
       const done = mine.filter(x => x.status !== 'pending' && x.day >= isoDate(new Date(Date.now() - 30 * 86400e3))).slice(-8).reverse();
       out += `<div class="ui-card"><div class="section-title">✋ Мои предложения</div>
         <button class="action-button ${ui.sched.prop ? 'orange' : ''}" data-act="propMode">${ui.sched.prop ? '✅ Готово' : '✋ Предложить смены'}</button>
-        ${ui.sched.prop ? '<div class="muted mt">Тапайте по своей строке в графике (она выделена): Д → Н → выходной → убрать. Можно на сегодня и вперёд.</div>' : ''}
+        ${ui.sched.prop ? `<div class="muted mt">Тапайте по своей строке в графике (она выделена): Д → Н → ${anyOn() ? '<b>Д/Н — любая смена</b> → ' : ''}выходной → убрать. Можно на сегодня и вперёд.</div>` : ''}
         ${pend.map(x => `<div class="shift-row mt"><span>${dayTxt(x.day)}: <b>${PROP_TXT[x.shift]}</b><div class="muted">⏳ на рассмотрении</div></span><button class="mini-btn danger" data-act="propCancel" data-id="${x.id}">✕</button></div>`).join('')}
-        ${done.map(x => `<div class="prop-done">${x.status === 'approved' ? '✅' : '❌'} ${dayTxt(x.day)}: ${PROP_TXT[x.shift]} — ${x.status === 'approved' ? 'одобрено' : 'отклонено'}</div>`).join('')}
+        ${done.map(x => `<div class="prop-done">${x.status === 'approved' ? '✅' : '❌'} ${dayTxt(x.day)}: ${PROP_TXT[x.shift]} — ${x.status === 'approved' ? (x.shift === 'any' ? 'поставили: ' + planTxt(x.day, x.staff_id) : 'одобрено') : 'отклонено'}</div>`).join('')}
         ${!pend.length && !done.length && !ui.sched.prop ? '<div class="muted mt">Предложите дни, когда можете выйти, — наладчик или руководство подтвердят их в графике.</div>' : ''}
       </div>`;
     }
@@ -2728,20 +2741,25 @@ function viewProps() {
       <div class="prop-day"><b>${dayTxt(day)}</b>${day < today ? ' <span class="att-tag miss">прошло</span>' : ''}
         <span class="prop-day-btns"><button class="mini-btn" data-act="propOkDay" data-day="${day}">✓ все</button><button class="mini-btn danger" data-act="propNoDay" data-day="${day}">✕ все</button></span></div>
       ${list.map(x => `<div class="shift-row"><span>👤 ${esc(staffName(x.staff_id))}: <b>${PROP_TXT[x.shift]}</b><div class="muted">сейчас в графике: ${planTxt(x.day, x.staff_id)}</div></span>
-        <span class="row-actions"><button class="mini-btn ok" data-act="propOk" data-id="${x.id}">✓</button><button class="mini-btn danger" data-act="propNo" data-id="${x.id}">✕</button></span></div>`).join('')}
+        <span class="row-actions">${x.shift === 'any'
+          ? `<button class="mini-btn ok" data-act="propOkAs" data-id="${x.id}" data-as="d">☀️ день</button><button class="mini-btn ok" data-act="propOkAs" data-id="${x.id}" data-as="n">🌙 ночь</button>`
+          : `<button class="mini-btn ok" data-act="propOk" data-id="${x.id}">✓</button>`}<button class="mini-btn danger" data-act="propNo" data-id="${x.id}">✕</button></span></div>`).join('')}
     </div>`).join('') +
     (!pend.length ? '<div class="ui-card"><div class="empty">Новых предложений нет</div></div>' : '') +
     (recent.length ? `<div class="ui-card"><div class="section-title">Последние решения</div>${recent.map(x => `<div class="prop-done">${x.status === 'approved' ? '✅' : '❌'} ${esc(staffName(x.staff_id))} · ${dayTxt(x.day)}: ${PROP_TXT[x.shift]}<span class="muted"> — ${esc(x.decided_by || '')}</span></div>`).join('')}</div>` : '');
 }
 
-function propDecide(list, ok) {
+function propDecide(list, ok, as) {
   const now = new Date().toISOString();
+  let skipped = 0;
   list.forEach(x => {
     if (!x || x.status !== 'pending') return;
-    if (ok) rosterSet(x.day, x.staff_id, x.shift === 'off' ? null : x.shift);
+    if (ok && x.shift === 'any' && !as) { skipped++; return; }       // «любая смена» — куда ставить, решает человек
+    if (ok) rosterSet(x.day, x.staff_id, x.shift === 'off' ? null : x.shift === 'any' ? as : x.shift);
     x.status = ok ? 'approved' : 'rejected'; x.decided_by = user; x.decided_at = now;
   });
   save(); rerender();
+  if (skipped) setTimeout(() => alert(`Предложения «любая смена» (${skipped}) не одобрены автоматически — выберите для каждого ☀️ день или 🌙 ночь.`), 50);
 }
 
 Object.assign(Actions, {
@@ -2750,7 +2768,7 @@ Object.assign(Actions, {
     const me = myStaff();
     if (!me || d.sid !== me.id || !ui.sched.prop || d.day < isoDate(new Date())) return;
     const id = d.day + '_' + me.id, cur = propPending(d.day, me.id);
-    const next = { null: 'd', d: 'n', n: 'off', off: null }[cur ? cur.shift : 'null'];
+    const next = (anyOn() ? { null: 'd', d: 'n', n: 'any', any: 'off', off: null } : { null: 'd', d: 'n', n: 'off', off: null, any: 'off' })[cur ? cur.shift : 'null'];
     if (next) db.props[id] = { id, staff_id: me.id, day: d.day, shift: next, status: 'pending', created_at: new Date().toISOString(), decided_by: null, decided_at: null };
     else delete db.props[id];
     save(); rerender();
@@ -2758,6 +2776,7 @@ Object.assign(Actions, {
   propCancel(d) { const x = db.props[d.id], me = myStaff(); if (x && me && x.staff_id === me.id && x.status === 'pending') { delete db.props[d.id]; save(); rerender(); } },
   schedProps() { ui.sched.view = 'props'; render(); },
   propOk(d) { propDecide([db.props[d.id]], true); },
+  propOkAs(d) { if (d.as === 'd' || d.as === 'n') propDecide([db.props[d.id]], true, d.as); },
   propNo(d) { propDecide([db.props[d.id]], false); },
   propOkDay(d) { propDecide(propPendingAll().filter(x => x.day === d.day), true); },
   propNoDay(d) { if (confirm('Отклонить все предложения за эту дату?')) propDecide(propPendingAll().filter(x => x.day === d.day), false); },
@@ -2765,7 +2784,7 @@ Object.assign(Actions, {
   propNoAll() { const l = propPendingAll(); if (confirm(`Отклонить все предложения (${l.length})?`)) propDecide(l, false); }
 });
 needPerm('propose', ['propMode', 'propTap', 'propCancel']);
-needPerm('approve', ['schedProps', 'propOk', 'propNo', 'propOkDay', 'propNoDay', 'propOkAll', 'propNoAll']);
+needPerm('approve', ['schedProps', 'propOk', 'propOkAs', 'propNo', 'propOkDay', 'propNoDay', 'propOkAll', 'propNoAll']);
 
 /* =====================================================================
    ИСТОРИЯ ДЕТАЛЕЙ (архив партий)
