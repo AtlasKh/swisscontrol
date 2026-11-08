@@ -90,6 +90,18 @@ table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .hist-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid #EEF2F6; cursor: pointer; font-size: 14px; }
 .hist-row:last-child { border-bottom: none; }
 .hist-row:active { background: #F8FAFC; }
+/* предложения смен */
+.rs-c.prop { box-shadow: inset 0 0 0 2px #E28743; background: repeating-linear-gradient(45deg, #FFF7EF, #FFF7EF 4px, #FDEBDC 4px, #FDEBDC 8px); color: #B4561B; font-style: italic; }
+.roster tr.my-row td.rs-name { background: #FFF3E6; color: #E28743; }
+.rs-c.prop-tap { cursor: pointer; outline: 1px dashed #E2A06B; outline-offset: -3px; }
+.tab { position: relative; }
+.tab-badge { position: absolute; top: 3px; left: 54%; background: #E28743; color: #fff; font-size: 10px; border-radius: 9px; padding: 1px 5px; line-height: 1.3; }
+.prop-day { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; text-transform: capitalize; }
+.prop-day-btns { margin-left: auto; display: flex; gap: 6px; text-transform: none; }
+.mini-btn.ok { color: #2EA043; }
+.prop-done { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #EEF2F6; color: #2B3A4A; }
+.prop-done:last-child { border-bottom: none; }
+.upd-bar { background: #2EA043; color: #fff; font-weight: 800; font-size: 14px; text-align: center; padding: 12px 14px; border-radius: 16px; margin-bottom: 14px; cursor: pointer; box-shadow: 0 6px 18px rgba(46,160,67,.3); }
 .cur-tag { font-size: 10px; font-weight: 800; color: #fff; background: #2EA043; border-radius: 6px; padding: 1px 6px; vertical-align: middle; }
 
 /* явка */
@@ -236,7 +248,11 @@ table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
 <script>
 /* ===================== УТИЛИТЫ ===================== */
 const tg = window.Telegram && window.Telegram.WebApp;
-if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+if (tg) {
+  try { tg.ready(); tg.expand(); } catch (e) {}
+  // не сворачивать приложение свайпом вниз при прокрутке (Telegram Bot API 7.7+); закрывать — крестиком
+  try { if (typeof tg.disableVerticalSwipes === 'function') tg.disableVerticalSwipes(); } catch (e) {}
+}
 
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const uid = () => Math.random().toString(36).slice(2, 9);
@@ -296,7 +312,7 @@ function seedData() {
 
 /* db.staff = [{id, name}] — сотрудники графика (порядок = порядок в списке)
    db.roster = { 'ГГГГ-ММ-ДД': { idСотрудника: 'd' | 'n' } } — нет записи = выходной */
-function normDb(d) { d = d || {}; d.machines = d.machines || []; d.staff = d.staff || []; d.roster = d.roster || {}; d.att = d.att || {}; d.batches = d.batches || {}; d.users = d.users || {}; return d; }
+function normDb(d) { d = d || {}; d.machines = d.machines || []; d.staff = d.staff || []; d.roster = d.roster || {}; d.att = d.att || {}; d.batches = d.batches || {}; d.users = d.users || {}; d.props = d.props || {}; return d; }
 let db = normDb(Store.load() || seedData());
 /* ===================== ОБЛАКО (Supabase) =====================
    Как это работает: весь остальной код по-прежнему меняет объект db и
@@ -304,11 +320,12 @@ let db = normDb(Store.load() || seedData());
    сервере, и отправляет только изменившиеся строки. Каждые 12 секунд
    (и при возврате в приложение) подтягиваются изменения других людей. */
 const Sync = { enabled: CLOUD, ready: false, busy: false, again: false, dirty: false, queued: false,
-  online: true, error: null, snap: { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {} }, loading: {}, t: null, started: false,
+  online: true, error: null, snap: { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {} }, loading: {}, t: null, started: false,
   noRoster: false,     // noRoster = в базе ещё нет таблиц графика (не выполнен setup2.sql)
   noAtt: false,        // noAtt = в базе ещё нет таблицы явки (не выполнен setup3.sql)
-  noV4: false };       // noV4 = нет архива партий и пользователей (не выполнен setup4.sql)
-const SYNC_KEYS = ['m', 'e', 'c', 's', 'r', 'a', 'b', 'u'];
+  noV4: false,         // noV4 = нет архива партий и пользователей (не выполнен setup4.sql)
+  noV5: false };       // noV5 = нет таблицы предложений смен (не выполнен setup5.sql)
+const SYNC_KEYS = ['m', 'e', 'c', 's', 'r', 'a', 'b', 'u', 'p'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -334,7 +351,9 @@ async function restAll(path) {            // сервер отдаёт макс�
 
 /* db -> строки таблиц */
 function toRows(d) {
-  const rows = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {} };
+  const rows = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {} };
+  if (!Sync.noV5 && !Sync.noRoster) for (const x of Object.values(d.props || {}))
+    rows.p[x.id] = { id: x.id, staff_id: x.staff_id, day: x.day, shift: x.shift, status: x.status, created_at: x.created_at, decided_by: x.decided_by || null, decided_at: x.decided_at || null };
   const v4 = !Sync.noV4;                           // архив партий, пользователи и batch_id есть в базе
   if (v4) {
     for (const b of Object.values(d.batches || {})) rows.b[b.id] = { id: b.id, machine_id: b.machine_id, data: b.data, finished_at: b.finished_at };
@@ -364,7 +383,7 @@ function toRows(d) {
   return rows;
 }
 function serialize(rows) {
-  const s = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {} };
+  const s = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {} };
   for (const k of SYNC_KEYS) for (const id in rows[k]) s[k][id] = JSON.stringify(rows[k][id]);
   return s;
 }
@@ -410,6 +429,10 @@ async function syncPush() {
       const A = R && !Sync.noAtt;                             // таблица явки есть в базе
       const ca = A ? changed('a') : [];
       if (ca.length) await up('attendance', ca);
+      const P = R && !Sync.noV5;                              // таблица предложений есть в базе
+      const cp = P ? changed('p') : [], dp = P ? removed('p') : [];
+      if (cp.length) await up('proposals', cp);
+      if (dp.length) await del('proposals', dp);
       const de = removed('e'), dm = removed('m'), dc = removed('c');
       const dr = R ? removed('r') : [], ds = R ? removed('s') : [], da = A ? removed('a') : [];
       if (de.length) await del('shift_entries', de);
@@ -445,7 +468,7 @@ function save() {
 
 /* получение данных с сервера. Возвращает true, если что-то изменилось */
 async function syncPull(first) {
-  const flags0 = [Sync.noRoster, Sync.noAtt, Sync.noV4].join();   // смена состояния базы (выполнен SQL) — тоже повод перерисовать
+  const flags0 = [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5].join();   // смена состояния базы (выполнен SQL) — тоже повод перерисовать
   const [ms, es, cs] = await Promise.all([
     restAll('machines?select=id,data&order=id'),
     restAll('shift_entries?select=*&order=id'),
@@ -473,6 +496,16 @@ async function syncPull(first) {
     if (/PGRST2|42P01|does not exist|schema cache|^404/.test(e.message)) Sync.noV4 = true;
     else throw e;
   }
+  let ps = [];
+  if (!Sync.noRoster) {
+    try {                                          // предложения смен (появляются после setup5.sql)
+      ps = await restAll('proposals?select=*&order=id');
+      Sync.noV5 = false;
+    } catch (e) {
+      if (/PGRST2|42P01|does not exist|schema cache|^404/.test(e.message)) Sync.noV5 = true;
+      else throw e;
+    }
+  } else Sync.noV5 = true;
   let as = [];
   if (!Sync.noRoster) {
     try {                                          // таблица явки (появляется после setup3.sql)
@@ -496,7 +529,7 @@ async function syncPull(first) {
     return true;
   }
   if (Sync.dirty || Sync.busy || Sync.queued) return false;   // у нас есть неотправленные правки — не затираем
-  const flagsChanged = flags0 !== [Sync.noRoster, Sync.noAtt, Sync.noV4].join();
+  const flagsChanged = flags0 !== [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5].join();
   const old = {};
   db.machines.forEach(m => { old[m.id] = m; });
   const byId = {};
@@ -520,7 +553,11 @@ async function syncPull(first) {
   machines.sort((a, b) => String(a.num).localeCompare(String(b.num), 'ru', { numeric: true }));
   const strip = (k, v) => (k === 'drawing' ? undefined : v);
   const before = JSON.stringify(db, strip);
-  let staff = db.staff, roster = db.roster, att = db.att, batches = db.batches, users = db.users;
+  let staff = db.staff, roster = db.roster, att = db.att, batches = db.batches, users = db.users, props = db.props;
+  if (!Sync.noV5) {
+    props = {};
+    for (const x of ps) props[x.id] = { id: x.id, staff_id: x.staff_id, day: x.day, shift: x.shift, status: x.status, created_at: x.created_at, decided_by: x.decided_by || null, decided_at: x.decided_at || null };
+  }
   if (!Sync.noV4) {
     batches = {}; users = {};
     for (const b of bs) batches[b.id] = { id: b.id, machine_id: b.machine_id, data: b.data || {}, finished_at: b.finished_at };
@@ -535,7 +572,7 @@ async function syncPull(first) {
     roster = {};
     for (const r of rs) (roster[r.day] = roster[r.day] || {})[r.staff_id] = r.shift;
   }
-  db = { machines, staff, roster, att, batches, users };
+  db = { machines, staff, roster, att, batches, users, props };
   const after = JSON.stringify(db, strip);
   Sync.snap = serialize(toRows(db));
   Store.save(db);
@@ -602,10 +639,38 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.14';
-const APP_DATE = '06.11.2026';
+const APP_VERSION = '1.16';
+const APP_DATE = '08.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
-const viewHtml = () => tabHtml() + footerHtml() + navHtml();
+const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
+
+/* ===================== ПРОВЕРКА ОБНОВЛЕНИЙ =====================
+   Telegram и GitHub Pages могут показывать сохранённую (старую) копию приложения.
+   При открытии и при возврате в приложение сверяем свою версию с сайтом;
+   если на сайте новее — плашка «обновить», по нажатию грузится свежая копия. */
+const Upd = { latest: null, busy: false };
+const verNewer = (a, b) => {
+  const x = String(a).split('.').map(Number), y = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] || 0) - (y[i] || 0); if (d) return d > 0; }
+  return false;
+};
+const updBanner = () => (Upd.latest ? `<div class="upd-bar" data-act="doUpdate">🔄 Вышла версия ${esc(Upd.latest)} — нажмите, чтобы обновить</div>` : '');
+async function checkUpdate() {
+  if (Upd.busy || !/^https?:$/.test(location.protocol)) return;
+  Upd.busy = true;
+  try {
+    const r = await fetch(location.pathname + '?upd=' + Date.now(), { cache: 'no-store' });
+    if (r.ok) {
+      const m = /const APP_VERSION = '([\d.]+)'/.exec(await r.text());
+      if (m && verNewer(m[1], APP_VERSION) && Upd.latest !== m[1]) {
+        Upd.latest = m[1];
+        const app = document.getElementById('app');
+        if (app && !app.querySelector('.upd-bar')) app.insertAdjacentHTML('afterbegin', updBanner());   // без перерисовки: не мешаем вводу
+      }
+    }
+  } catch (e) {}
+  Upd.busy = false;
+}
 
 /* ===================== ПОЛЬЗОВАТЕЛЬ ===================== */
 function getUser() {
@@ -633,9 +698,9 @@ const ROLES = {
 };
 const ROLE_CHOICES = ['setter', 'operator', 'manager', 'qc'];
 const PERMS = {
-  setter: ['setup', 'produce', 'editOthers', 'sched', 'attView', 'attEdit', 'checkin', 'tab:machines', 'tab:schedule', 'tab:tol', 'tab:threads'],
-  operator: ['produce', 'checkin', 'tab:machines', 'tab:schedule', 'tab:tol', 'tab:threads'],
-  manager: ['attView', 'tab:machines', 'tab:schedule'],
+  setter: ['setup', 'produce', 'editOthers', 'sched', 'attView', 'attEdit', 'checkin', 'approve', 'tab:machines', 'tab:schedule', 'tab:tol', 'tab:threads'],
+  operator: ['produce', 'checkin', 'propose', 'tab:machines', 'tab:schedule', 'tab:tol', 'tab:threads'],
+  manager: ['attView', 'approve', 'tab:machines', 'tab:schedule'],
   qc: ['tab:machines', 'tab:tol', 'tab:threads']
 };
 // какие разделы станка видит роль
@@ -720,7 +785,7 @@ function modal(title, fields, onSave, onDelete, init) {
   // числовое поле при касании выделяется целиком — новое значение заменяет старое, а не дописывается к нему
   w.addEventListener('focusin', e => {
     const el = e.target;
-    if (el.matches && el.matches('input[inputmode="decimal"]')) setTimeout(() => { try { el.setSelectionRange(0, el.value.length); } catch (er) {} }, 0);
+    if (el.matches && el.matches('input[inputmode="decimal"]')) selectOnFocus(el);
   });
   document.body.appendChild(w);
   if (init) init(w);
@@ -730,9 +795,13 @@ function modal(title, fields, onSave, onDelete, init) {
 }
 document.addEventListener('focusin', e => {
   const el = e.target;
-  if (el.matches && el.matches('#app input[inputmode="decimal"], #app input[inputmode="numeric"]') && !el.closest('.modal'))
-    setTimeout(() => { try { el.setSelectionRange(0, el.value.length); } catch (er) {} }, 0);
+  if (el.matches && el.matches('#app input[inputmode="decimal"], #app input[inputmode="numeric"]') && !el.closest('.modal')) selectOnFocus(el);
 });
+/* выделить значение после касания — только если человек ещё ничего не успел ввести (иначе выделение накрыло бы введённое) */
+function selectOnFocus(el) {
+  const v0 = el.value;
+  setTimeout(() => { if (document.activeElement === el && el.value === v0) { try { el.setSelectionRange(0, el.value.length); } catch (er) {} } }, 0);
+}
 /* цанга Main по умолчанию = Ø прутка (пока её не изменили вручную) */
 function autoCollet(w) {
   const dia = w.querySelector('[name="dia"]'), cm = w.querySelector('[name="cm"]');
@@ -1784,7 +1853,7 @@ const TABS = [
   { k: 'threads', ico: '🔩', t: 'Резьбы' }
 ];
 const navHtml = () => ((Sync.enabled && !Sync.ready) || (usersOn() && !myRole())) ? '' : `<nav class="tabbar"><div class="tabbar-in">${TABS.filter(x => can('tab:' + x.k)).map(x =>
-  `<div class="tab ${ui.tab === x.k ? 'active' : ''}" data-act="tab" data-t="${x.k}"><span class="ico">${x.ico}</span>${x.t}</div>`).join('')}</div></nav>`;
+  `<div class="tab ${ui.tab === x.k ? 'active' : ''}" data-act="tab" data-t="${x.k}"><span class="ico">${x.ico}</span>${x.t}${x.k === 'schedule' && propsOn() && can('approve') && propPendingAll().length ? `<b class="tab-badge">${propPendingAll().length}</b>` : ''}</div>`).join('')}</div></nav>`;
 
 function tabHtml() {
   const lg = gateView(); if (lg) return lg;                          // загрузка данных
@@ -1887,11 +1956,13 @@ function viewSchedule() {
   if (ui.sched.view === 'staff') return viewStaff();
   if (ui.sched.view === 'att' && can('attView')) return viewAtt();
   if (ui.sched.view === 'qr' && can('sched')) return viewQr();
+  if (ui.sched.view === 'props' && can('approve')) return viewProps();
   const days = monthDays(ui.sched.month), todayIso = isoDate(new Date());
   const nowD = new Date(), attStart = attOn() ? attStartDay() : null;
   const monthName = ui.sched.month.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
   const canEdit = schedCanEdit(), editing = canEdit && ui.sched.edit, norm = schedNorm();
   const staff = db.staff;
+  const meS = propsOn() && can('propose') && !can('sched') ? myStaff() : null, proposing = !!(meS && ui.sched.prop);
   const covCls = c => (c >= norm ? 'cov-ok' : c >= norm - 1 ? 'cov-mid' : 'cov-low');
   let grid = '';
   if (staff.length) {
@@ -1899,11 +1970,15 @@ function viewSchedule() {
       `<th class="${x.dow === 0 || x.dow === 6 ? 'we' : ''} ${x.iso === todayIso ? 'today' : ''}"><small>${WD[x.dow]}</small>${x.n}</th>`).join('')}</tr>`;
     const body = staff.map(p => {
       const t = staffTotals(p.id, days);
-      return `<tr><td class="rs-name" ${editing ? `data-act="rosterFill" data-sid="${p.id}"` : ''}>${esc(p.name)}<small>☀${t.d} 🌙${t.n} · ${t.all}</small></td>${days.map(x => {
+      return `<tr class="${proposing && p.id === meS.id ? 'my-row' : ''}"><td class="rs-name" ${editing ? `data-act="rosterFill" data-sid="${p.id}"` : ''}>${esc(p.name)}<small>☀${t.d} 🌙${t.n} · ${t.all}</small></td>${days.map(x => {
         const v = rosterGet(x.iso, p.id);
         const ac = attCellCls(x.iso, p.id, v, attStart, nowD);
         const fact = !v && ac === 'att-extra' ? attFor(x.iso, p.id) : null;      // вышел вне графика
-        return `<td class="rs-c ${v || ''} ${ac} ${x.iso === todayIso ? 'today' : ''}" ${editing ? `data-act="rosterTap" data-day="${x.iso}" data-sid="${p.id}"` : ''}>${v === 'd' ? 'Д' : v === 'n' ? 'Н' : fact ? (fact.shift === 'd' ? 'д' : 'н') : ''}</td>`;
+        const pp = propsOn() ? propPending(x.iso, p.id) : null;                // предложение на рассмотрении
+        const mineTap = proposing && p.id === meS.id && x.iso >= todayIso;
+        const act = editing ? `data-act="rosterTap" data-day="${x.iso}" data-sid="${p.id}"` : mineTap ? `data-act="propTap" data-day="${x.iso}" data-sid="${p.id}"` : '';
+        const content = pp ? PROP_L[pp.shift] + '?' : v === 'd' ? 'Д' : v === 'n' ? 'Н' : fact ? (fact.shift === 'd' ? 'д' : 'н') : '';
+        return `<td class="rs-c ${v || ''} ${ac} ${pp ? 'prop' : ''} ${mineTap ? 'prop-tap' : ''} ${x.iso === todayIso ? 'today' : ''}" ${act}>${content}</td>`;
       }).join('')}</tr>`;
     }).join('');
     const cov = (sh, label) => `<tr class="rs-cov"><td class="rs-name">${label}</td>${days.map(x => {
@@ -1914,7 +1989,7 @@ function viewSchedule() {
       <thead>${head}</thead><tbody>${body}${cov('d', '☀️ На день')}${cov('n', '🌙 На ночь')}</tbody></table></div>`;
   }
   const totals = staff.map(p => { const t = staffTotals(p.id, days); return { p, t }; }).sort((a, b) => b.t.all - a.t.all);
-  return header('График смен', monthName, false) + checkinCard() +
+  return header('График смен', monthName, false) + checkinCard() + propCard() +
     `<div class="ui-card">
       <div class="cal-head"><button class="mini-btn" data-act="schedMonth" data-dir="-1">←</button><b>${esc(monthName)}</b><button class="mini-btn" data-act="schedMonth" data-dir="1">→</button></div>
       <div class="legend"><span class="lg d">Д</span> день ${hh(DAY_START)}–${hh(NIGHT_START)} <span class="lg n">Н</span> ночь ${hh(NIGHT_START)}–${hh(DAY_START)} <span class="lg">&nbsp;</span> выходной</div>
@@ -2016,6 +2091,7 @@ Object.assign(Actions, {
     db.staff = db.staff.filter(x => x.id !== p.id);
     for (const iso of Object.keys(db.roster)) rosterSet(iso, p.id, null);
     for (const [id, a] of Object.entries(db.att)) if (a.staff_id === p.id) delete db.att[id];
+    for (const [id, x] of Object.entries(db.props)) if (x.staff_id === p.id) delete db.props[id];
     save(); rerender();
   },
   staffMove(d) {
@@ -2594,6 +2670,104 @@ document.addEventListener('input', e => {
 });
 
 /* =====================================================================
+   ПРЕДЛОЖЕНИЯ СМЕН
+   Оператор в режиме «Предложить смены» тапает по своей строке графика (Д / Н / выходной).
+   Наладчик и руководство одобряют или отклоняют: по одному, все за дату или все сразу.
+   Одобренное предложение записывается в график.
+   ===================================================================== */
+const PROP_L = { d: 'Д', n: 'Н', off: 'В' };
+const PROP_TXT = { d: '☀️ день', n: '🌙 ночь', off: 'выходной' };
+const propsOn = () => !(Sync.enabled && (Sync.noRoster || Sync.noV5));
+const propPending = (iso, sid) => { const x = db.props[iso + '_' + sid]; return x && x.status === 'pending' ? x : null; };
+const propPendingAll = () => Object.values(db.props).filter(x => x.status === 'pending' && db.staff.some(s => s.id === x.staff_id))
+  .sort((a, b) => (a.day + a.staff_id < b.day + b.staff_id ? -1 : 1));
+const staffName = sid => (db.staff.find(s => s.id === sid) || {}).name || '—';
+const dayTxt = iso => new Date(iso + 'T12:00:00').toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'long' });
+const planTxt = (iso, sid) => { const v = rosterGet(iso, sid); return v === 'd' ? '☀️ день' : v === 'n' ? '🌙 ночь' : 'выходной'; };
+
+function propCard() {
+  const approver = propsOn() && can('approve'), proposer = can('propose') && !can('sched');   // кто сам правит график — не предлагает
+  if (Sync.enabled && Sync.noV5 && !Sync.noRoster && (can('sched') || isOwner()))
+    return '<div class="ui-card"><div class="warn-box" style="margin:0">📝 Чтобы операторы могли предлагать смены, выполните один раз <b>setup5.sql</b> в Supabase.</div></div>';
+  let out = '';
+  if (approver) {
+    const n = propPendingAll().length;
+    out += `<div class="ui-card users-banner" data-act="schedProps"><span>📝 Предложения смен</span>${n ? `<b class="pend-badge">${n} на рассмотрении</b>` : '<span class="muted">нет новых ›</span>'}</div>`;
+  }
+  if (proposer && propsOn()) {
+    const me = myStaff();
+    if (!me) out += `<div class="ui-card"><div class="section-title">✋ Предложить смены</div><div class="muted">Чтобы предлагать, когда можете выйти, один раз выберите себя в списке сотрудников графика.</div>
+      ${attOn() ? '<button class="action-button mt" data-act="attLink">Это я — выбрать себя</button>' : ''}</div>`;
+    else {
+      const today = isoDate(new Date());
+      const mine = Object.values(db.props).filter(x => x.staff_id === me.id).sort((a, b) => (a.day < b.day ? -1 : 1));
+      const pend = mine.filter(x => x.status === 'pending');
+      const done = mine.filter(x => x.status !== 'pending' && x.day >= isoDate(new Date(Date.now() - 30 * 86400e3))).slice(-8).reverse();
+      out += `<div class="ui-card"><div class="section-title">✋ Мои предложения</div>
+        <button class="action-button ${ui.sched.prop ? 'orange' : ''}" data-act="propMode">${ui.sched.prop ? '✅ Готово' : '✋ Предложить смены'}</button>
+        ${ui.sched.prop ? '<div class="muted mt">Тапайте по своей строке в графике (она выделена): Д → Н → выходной → убрать. Можно на сегодня и вперёд.</div>' : ''}
+        ${pend.map(x => `<div class="shift-row mt"><span>${dayTxt(x.day)}: <b>${PROP_TXT[x.shift]}</b><div class="muted">⏳ на рассмотрении</div></span><button class="mini-btn danger" data-act="propCancel" data-id="${x.id}">✕</button></div>`).join('')}
+        ${done.map(x => `<div class="prop-done">${x.status === 'approved' ? '✅' : '❌'} ${dayTxt(x.day)}: ${PROP_TXT[x.shift]} — ${x.status === 'approved' ? 'одобрено' : 'отклонено'}</div>`).join('')}
+        ${!pend.length && !done.length && !ui.sched.prop ? '<div class="muted mt">Предложите дни, когда можете выйти, — наладчик или руководство подтвердят их в графике.</div>' : ''}
+      </div>`;
+    }
+  }
+  return out;
+}
+
+function viewProps() {
+  const pend = propPendingAll(), groups = {};
+  pend.forEach(x => { (groups[x.day] = groups[x.day] || []).push(x); });
+  const today = isoDate(new Date());
+  const recent = Object.values(db.props).filter(x => x.status !== 'pending' && x.decided_at).sort((a, b) => (a.decided_at < b.decided_at ? 1 : -1)).slice(0, 15);
+  return header('Предложения смен', pend.length ? pend.length + ' на рассмотрении' : 'Новых нет', true) +
+    (pend.length ? `<div class="ui-card"><div class="two-col">
+        <button class="action-button" data-act="propOkAll">✓ Одобрить все (${pend.length})</button>
+        <button class="action-button secondary" style="color:#C0392B" data-act="propNoAll">✕ Отклонить все</button></div></div>` : '') +
+    Object.entries(groups).map(([day, list]) => `<div class="ui-card">
+      <div class="prop-day"><b>${dayTxt(day)}</b>${day < today ? ' <span class="att-tag miss">прошло</span>' : ''}
+        <span class="prop-day-btns"><button class="mini-btn" data-act="propOkDay" data-day="${day}">✓ все</button><button class="mini-btn danger" data-act="propNoDay" data-day="${day}">✕ все</button></span></div>
+      ${list.map(x => `<div class="shift-row"><span>👤 ${esc(staffName(x.staff_id))}: <b>${PROP_TXT[x.shift]}</b><div class="muted">сейчас в графике: ${planTxt(x.day, x.staff_id)}</div></span>
+        <span class="row-actions"><button class="mini-btn ok" data-act="propOk" data-id="${x.id}">✓</button><button class="mini-btn danger" data-act="propNo" data-id="${x.id}">✕</button></span></div>`).join('')}
+    </div>`).join('') +
+    (!pend.length ? '<div class="ui-card"><div class="empty">Новых предложений нет</div></div>' : '') +
+    (recent.length ? `<div class="ui-card"><div class="section-title">Последние решения</div>${recent.map(x => `<div class="prop-done">${x.status === 'approved' ? '✅' : '❌'} ${esc(staffName(x.staff_id))} · ${dayTxt(x.day)}: ${PROP_TXT[x.shift]}<span class="muted"> — ${esc(x.decided_by || '')}</span></div>`).join('')}</div>` : '');
+}
+
+function propDecide(list, ok) {
+  const now = new Date().toISOString();
+  list.forEach(x => {
+    if (!x || x.status !== 'pending') return;
+    if (ok) rosterSet(x.day, x.staff_id, x.shift === 'off' ? null : x.shift);
+    x.status = ok ? 'approved' : 'rejected'; x.decided_by = user; x.decided_at = now;
+  });
+  save(); rerender();
+}
+
+Object.assign(Actions, {
+  propMode() { ui.sched.prop = !ui.sched.prop; ui.sched.edit = false; rerender(); },
+  propTap(d) {
+    const me = myStaff();
+    if (!me || d.sid !== me.id || !ui.sched.prop || d.day < isoDate(new Date())) return;
+    const id = d.day + '_' + me.id, cur = propPending(d.day, me.id);
+    const next = { null: 'd', d: 'n', n: 'off', off: null }[cur ? cur.shift : 'null'];
+    if (next) db.props[id] = { id, staff_id: me.id, day: d.day, shift: next, status: 'pending', created_at: new Date().toISOString(), decided_by: null, decided_at: null };
+    else delete db.props[id];
+    save(); rerender();
+  },
+  propCancel(d) { const x = db.props[d.id], me = myStaff(); if (x && me && x.staff_id === me.id && x.status === 'pending') { delete db.props[d.id]; save(); rerender(); } },
+  schedProps() { ui.sched.view = 'props'; render(); },
+  propOk(d) { propDecide([db.props[d.id]], true); },
+  propNo(d) { propDecide([db.props[d.id]], false); },
+  propOkDay(d) { propDecide(propPendingAll().filter(x => x.day === d.day), true); },
+  propNoDay(d) { if (confirm('Отклонить все предложения за эту дату?')) propDecide(propPendingAll().filter(x => x.day === d.day), false); },
+  propOkAll() { const l = propPendingAll(); if (confirm(`Одобрить все предложения (${l.length})? Они будут записаны в график.`)) propDecide(l, true); },
+  propNoAll() { const l = propPendingAll(); if (confirm(`Отклонить все предложения (${l.length})?`)) propDecide(l, false); }
+});
+needPerm('propose', ['propMode', 'propTap', 'propCancel']);
+needPerm('approve', ['schedProps', 'propOk', 'propNo', 'propOkDay', 'propNoDay', 'propOkAll', 'propNoAll']);
+
+/* =====================================================================
    ИСТОРИЯ ДЕТАЛЕЙ (архив партий)
    При переналадке с ответом «Партия окончена — да» текущая деталь со всеми
    параметрами наладки, программой, чертежом и итогами уходит в архив,
@@ -2813,6 +2987,7 @@ Object.assign(views, { history: viewHistory, batch: viewBatch, allHistory: viewA
 Object.assign(Actions, {
   batchOpen(d) { if (d.mid) ui.mid = d.mid; ui.batchFrom = d.from || 'machine'; ui.bid = d.id; ui.view = 'batch'; render(); },
   allHistory() { ui.view = 'allHistory'; render(); },
+  doUpdate() { location.replace(location.pathname + '?v=' + encodeURIComponent(Upd.latest || Date.now()) + location.hash); },
   batchDrawView() {
     const b = db.batches[ui.bid], img = b && (batchImg[b.id] || b.drawing); if (!img) return;
     const w = document.createElement('div'); w.className = 'fullscreen'; w.innerHTML = `<img src="${img}">`; w.onclick = () => w.remove(); document.body.appendChild(w);
@@ -2926,6 +3101,9 @@ document.addEventListener('change', e => {
 render();
 if (!user) setTimeout(() => Actions.setName(), 300);
 if (Sync.enabled) Sync.boot();
+setTimeout(checkUpdate, 1500);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
+setInterval(checkUpdate, 15 * 60 * 1000);
 </script>
 </body>
 </html>
