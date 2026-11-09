@@ -52,6 +52,9 @@ body { background: linear-gradient(180deg, #F4F7F9 0%, #EAEFF4 100%); color: #3A
 .lg { display: inline-block; width: 22px; height: 20px; line-height: 20px; text-align: center; border-radius: 6px; font-weight: 800; background: #F1F4F7; border: 1px solid #DCE3EB; }
 .lg.d { background: #F9E2B4; color: #8A5A00; border-color: #EBCB8B; }
 .lg.n { background: #DCD5F7; color: #4B3A99; border-color: #C3B8EE; }
+.notify-box { border-radius: 14px; padding: 10px 12px; font-size: 13px; margin-top: 10px; background: #EEF3FB; border: 1px solid #C9D8F0; color: #23426E; line-height: 1.45; }
+.notify-box.ok { background: #EAF6EE; border-color: #BFE3CB; color: #1E5A33; }
+.notify-box.warn { background: #FDF1E7; border-color: #F2CDAE; color: #7A4A20; }
 .warn-box { background: #FDF1E7; border: 1px solid #F2CDAE; border-radius: 14px; padding: 10px 12px; font-size: 13px; margin-top: 10px; color: #7A4A20; }
 .roster-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; background: #fff; border: 1px solid #DCE3EB; border-radius: 18px; box-shadow: 0 8px 24px rgba(160,180,200,.08); }
 table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
@@ -651,8 +654,8 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.18';
-const APP_DATE = '08.11.2026';
+const APP_VERSION = '1.19';
+const APP_DATE = '09.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
 
@@ -2010,7 +2013,8 @@ function viewSchedule() {
       ${canEdit ? `<div class="two-col mt">
         <button class="action-button ${editing ? 'orange' : ''}" data-act="schedEdit">${editing ? '✅ Готово' : '✏️ Редактировать'}</button>
         <button class="action-button secondary" data-act="schedStaff">👥 Сотрудники</button></div>
-        ${editing ? `<div class="muted mt">Тап по клетке: выходной → Д → Н → выходной. Тап по имени — заполнить по шаблону.${propsOn() ? ' Если поставите то же, что предложил оператор, предложение одобрится автоматически' + (ui.sched.autoIds && ui.sched.autoIds.size ? ` <b>(одобрено: ${ui.sched.autoIds.size})</b>` : '') + '.' : ''}</div>` : ''}` : ''}
+        ${!editing && ui.sched.notify ? `<div class="notify-box ${ui.sched.notify.cls || ''}">${ui.sched.notify.html}</div>` : ''}
+        ${editing ? `<div class="muted mt">Тап по клетке: выходной → Д → Н → выходной. Тап по имени — заполнить по шаблону. Когда нажмёте «Готово», людям с привязанным Telegram придёт сообщение об их изменениях.${propsOn() ? ' Если поставите то же, что предложил оператор, предложение одобрится автоматически' + (ui.sched.autoIds && ui.sched.autoIds.size ? ` <b>(одобрено: ${ui.sched.autoIds.size})</b>` : '') + '.' : ''}</div>` : ''}` : ''}
       ${attOn() && (can('attView') || can('sched')) ? `<div class="two-col mt">${can('attView') ? '<button class="action-button secondary" data-act="schedAtt">🕒 Явка</button>' : ''}
         ${can('sched') ? '<button class="action-button secondary" data-act="schedQr">🔳 QR для печати</button>' : ''}</div>` : ''}
     </div>
@@ -2041,6 +2045,53 @@ function viewStaff() {
       <div class="muted">Влияет только на цвет счётчика под сеткой. Сохраняется на этом телефоне.</div></div>`;
 }
 
+/* ===================== УВЕДОМЛЕНИЯ ОБ ИЗМЕНЕНИЯХ ГРАФИКА =====================
+   После «Готово» сравниваем график с тем, что было до начала правки (только с сегодняшнего дня),
+   и отправляем список изменений функции notify в Supabase. Она проверяет подпись Telegram,
+   права, сверяет с базой и шлёт каждому сообщение от бота. Токен бота хранится только в Supabase. */
+const NOTIFY_FN = 'notify';
+function rosterDiff(base, cur, fromIso) {
+  const out = [], ids = new Set(db.staff.map(p => p.id));
+  const days = new Set([...Object.keys(base || {}), ...Object.keys(cur || {})]);
+  for (const iso of [...days].sort()) {
+    if (iso < fromIso) continue;
+    const a = (base || {})[iso] || {}, b = (cur || {})[iso] || {};
+    for (const sid of new Set([...Object.keys(a), ...Object.keys(b)])) {
+      if (!ids.has(sid)) continue;
+      const from = a[sid] || '', to = b[sid] || '';
+      if (from !== to) out.push({ staff_id: sid, day: iso, from, to });
+    }
+  }
+  return out;
+}
+function notifyShow(html, cls) { ui.sched.notify = { html, cls }; if (ui.tab === 'schedule') rerender(); }
+async function schedNotify(base) {
+  const changes = rosterDiff(base, db.roster, isoDate(new Date()));
+  if (!changes.length || !Sync.enabled) return;
+  const people = new Set(changes.map(c => c.staff_id)).size;
+  const initData = tg && tg.initData;
+  if (!initData) { ui.sched.notify = { html: `📨 Изменения у ${people} чел. сохранены. Уведомления отправляются только из Telegram.`, cls: 'warn' }; return; }
+  ui.sched.notify = { html: `📨 Отправляю уведомления (${people} чел.)…` };
+  try {
+    await flushNow();                                   // сначала сохраняем график в базу — функция сверяется с ней
+    if (Sync.dirty) throw new Error('график ещё не сохранился в базе (нет связи)');
+    const r = await fetch(SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/' + NOTIFY_FN, {
+      method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ initData, changes })
+    });
+    const res = await r.json().catch(() => ({}));
+    if (r.status === 404 && !res.error) throw new Error('функция уведомлений ещё не установлена в Supabase');
+    if (!r.ok || res.error) throw new Error(res.error || ('ошибка ' + r.status));
+    const parts = [];
+    if (res.sent && res.sent.length) parts.push(`✅ Отправлено: ${res.sent.map(esc).join(', ')}`);
+    if (res.noLink && res.noLink.length) parts.push(`🔗 Не привязан Telegram: ${res.noLink.map(esc).join(', ')}`);
+    if (res.failed && res.failed.length) parts.push(`⚠️ Не доставлено: ${res.failed.map(f => esc(f.name) + ' — ' + esc(f.reason)).join('; ')}`);
+    notifyShow('📨 ' + (parts.join('<br>') || 'Уведомлять некого'), res.failed && res.failed.length ? 'warn' : 'ok');
+  } catch (e) {
+    notifyShow('📨 Уведомления не отправлены: ' + esc(e.message || String(e)), 'warn');
+  }
+}
+
 function schedScrollToToday() {
   const wrap = document.getElementById('roster-wrap');
   if (!wrap) return;
@@ -2054,7 +2105,14 @@ Object.assign(Actions, {
     ui.sched.month = new Date(m.getFullYear(), m.getMonth() + num(d.dir), 1);
     ui.sched.scrollToday = true; render();
   },
-  schedEdit() { if (schedCanEdit()) { ui.sched.edit = !ui.sched.edit; ui.sched.autoIds = new Set(); ui.sched.prop = false; rerender(); } },
+  schedEdit() {
+    if (!schedCanEdit()) return;
+    const base = ui.sched.base;
+    ui.sched.edit = !ui.sched.edit; ui.sched.autoIds = new Set(); ui.sched.prop = false;
+    if (ui.sched.edit) { ui.sched.base = JSON.parse(JSON.stringify(db.roster)); ui.sched.notify = null; }   // запоминаем график до правки
+    else { ui.sched.base = null; if (base) schedNotify(base); }
+    rerender();
+  },
   schedStaff() { if (schedCanEdit()) { ui.sched.view = 'staff'; render(); } },
   rosterTap(d) {
     if (!schedCanEdit() || !ui.sched.edit) return;
