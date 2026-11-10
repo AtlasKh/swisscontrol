@@ -8,7 +8,7 @@
 
 const OWNER_ID = 381731875;                         // владелец (админ)
 const EDIT_ROLES = ['setter'];                      // кто ещё может менять график
-const APP_URL_DEFAULT = 'https://atlaskh.github.io/swisscontrol/';
+const APP_URL_DEFAULT = 'https://atlaskh.github.io/swisscontrol/?open=schedule';   // сразу на вкладку «График»
 const MAX_AGE_SEC = 7 * 24 * 3600;                  // подпись Telegram действует не дольше недели
 const DAY_START = 6, NIGHT_START = 18;
 

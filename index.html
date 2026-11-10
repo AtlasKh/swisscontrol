@@ -654,7 +654,7 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.19';
+const APP_VERSION = '1.20';
 const APP_DATE = '09.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
@@ -1939,6 +1939,13 @@ document.addEventListener('input', e => {
    ===================================================================== */
 const WD = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 ui.sched = { month: new Date(new Date().getFullYear(), new Date().getMonth(), 1), edit: false, view: 'grid', scrollToday: true };
+/* открыть сразу нужную вкладку: ссылка вида …/swisscontrol/?open=schedule (кнопка в сообщении бота) */
+(() => {
+  let want = null;
+  try { want = new URLSearchParams(location.search).get('open'); } catch (e) {}
+  if (!want && tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) want = tg.initDataUnsafe.start_param;
+  if (want === 'schedule') { ui.tab = 'schedule'; ui.sched.scrollToday = true; }
+})();
 const schedNorm = () => { let n = 3; try { n = +localStorage.getItem('sc_norm') || 3; } catch (e) {} return n; };
 const schedCanEdit = () => can('sched') && !(Sync.enabled && Sync.noRoster);
 const ROSTER_PATTERNS = {
