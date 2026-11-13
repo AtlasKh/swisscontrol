@@ -681,7 +681,7 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.21';
+const APP_VERSION = '1.22';
 const APP_DATE = '13.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
@@ -796,7 +796,7 @@ const todayEntry = (m, create) => {
 };
 
 /* ===================== МОДАЛЬНОЕ ОКНО ===================== */
-function modal(title, fields, onSave, onDelete, init) {
+function modal(title, fields, onSave, onDelete, init, okLabel) {
   const w = document.createElement('div');
   w.className = 'modal-bg';
   const fieldHtml = f => {
@@ -811,7 +811,7 @@ function modal(title, fields, onSave, onDelete, init) {
     return `<div class="input-group"><label>${esc(f.label)}</label>${input}</div>`;
   };
   w.innerHTML = `<div class="modal"><h3>${esc(title)}</h3>${fields.map(fieldHtml).join('')}
-    <div class="row"><button class="action-button secondary" data-m="x">Отмена</button><button class="action-button" data-m="ok">Сохранить</button></div>
+    <div class="row"><button class="action-button secondary" data-m="x">Отмена</button><button class="action-button" data-m="ok">${esc(okLabel || 'Сохранить')}</button></div>
     ${onDelete ? '<button class="action-button secondary mt" style="color:#C0392B" data-m="del">Удалить</button>' : ''}</div>`;
   w.addEventListener('click', e => {
     const b = e.target.closest('[data-m]');
@@ -2374,6 +2374,7 @@ function viewContour() {
       <div id="cnt-msgs">${cntMsgs(r)}</div>
       <div id="cnt-code" class="cn-code">${cntCode(r)}</div>
       <div class="two-col mt"><button class="action-button orange" id="cnt-copy" data-act="cntCopy">📋 Копировать</button><button class="action-button secondary" data-act="cntSim">▶ Симуляция</button></div>
+      <button class="action-button secondary mt" data-act="cntFile">💾 Файл для станка (флешка)</button>
     </div>
     <div class="ui-card">
       <div class="section-title">Вывод и цикл</div>
@@ -2524,6 +2525,25 @@ Object.assign(Actions, {
   cntDel() { const c = ui.cnt; if (c.pts.length <= 2) return; cntPush(); c.pts.splice(c.sel, 1); c.sel = Math.min(c.sel, c.pts.length - 1); cntSave(); rerender(); },
   cntHl(d) { const k = d.k === '-1' || d.k === 'undefined' ? null : +d.k; ui.cntHl = ui.cntHl === k ? null : k; cntUpdate(); },
   cntCopy() { copyText(cntR().lines.join('\n'), document.getElementById('cnt-copy')); },
+  cntFile() {
+    const r = cntR();
+    if (!r.lines.length || r.errs.length) { choice('Сначала исправьте контур', r.errs.map(esc).join('<br>') || 'Программа пустая', [['Понятно', 'secondary']]); return; }
+    const f = ui.cnt.file || {};
+    modal('Файл для станка', [
+      { k: 'num', label: 'Номер программы: O…', value: f.num || '', ph: '1234' },
+      { k: 'cmt', label: 'Комментарий (по-русски можно — переведу латиницей)', value: f.cmt || '', ph: 'например: kontur vtulki' },
+      { k: 'end', label: 'Окончание', type: 'select', options: NC_END, value: NC_END[f.end || 0] },
+      { k: 'ext', label: 'Имя файла', type: 'select', options: NC_EXT, value: NC_EXT[f.ext || 0] }
+    ], o => {
+      const n = String(o.num || '').trim().replace(/^O/i, '');
+      if (!/^\d{1,8}$/.test(n)) { alert('Номер программы — только цифры, например 1234'); return false; }
+      const numStr = n.padStart(4, '0'), end = NC_END.indexOf(o.end), ext = NC_EXT.indexOf(o.ext);
+      ui.cnt.file = { num: numStr, cmt: o.cmt || '', end: Math.max(0, end), ext: Math.max(0, ext) }; cntSave();
+      const name = 'O' + numStr + ['', '.NC', '.TXT'][Math.max(0, ext)];
+      const text = ncFileText(numStr, ncComment(o.cmt), r.lines, ['', 'M99', 'M30'][Math.max(0, end)]);
+      setTimeout(() => ncSend(name, text), 0);
+    }, null, null, 'Отправить');
+  },
   cntNew() { choice('Новый контур', 'Текущий контур будет заменён простым примером. Отменить можно кнопкой «↶ Отмена».', [['Начать заново', 'orange', () => { cntPush(); ui.cnt = CNT_DEF(); ui.cntView = null; cntSave(); rerender(); }], ['Не надо', 'secondary']]); },
   cntEx() {
     choice('Примеры', 'Первые два — твои программы O5114 и O5207: расчёт совпадает с ними строка в строку. Поправка в них выключена (R0), как в эталоне.',
@@ -2562,6 +2582,39 @@ function cntAng(toZ) {
   if (toZ) { if (Math.abs(dr) < 1e-9) { alert('Ø этой точки равен предыдущему — сначала задайте Ø'); return; } p.z = (+a.z || 0) + (dz < 0 ? -1 : 1) * Math.abs(dr) / t; }
   else { if (Math.abs(dz) < 1e-9) { alert('Z этой точки равен предыдущему — сначала задайте Z'); return; } p.x = (+a.x || 0) + (dr < 0 ? -1 : 1) * 2 * Math.abs(dz) * t; }
   cntSave(); rerender();
+}
+
+/* ---------- файл программы для станка ---------- */
+const NC_TR = { а: 'A', б: 'B', в: 'V', г: 'G', д: 'D', е: 'E', ё: 'E', ж: 'ZH', з: 'Z', и: 'I', й: 'Y', к: 'K', л: 'L', м: 'M', н: 'N', о: 'O', п: 'P', р: 'R', с: 'S', т: 'T', у: 'U', ф: 'F', х: 'H', ц: 'C', ч: 'CH', ш: 'SH', щ: 'SCH', ъ: '', ы: 'Y', ь: '', э: 'E', ю: 'YU', я: 'YA', і: 'I', ї: 'YI', є: 'E', ґ: 'G' };
+/* комментарий в скобках: стойка понимает только латиницу — переводим транслитом, лишнее убираем */
+const ncComment = t => String(t || '').toLowerCase().split('').map(ch => NC_TR[ch] != null ? NC_TR[ch] : ch).join('').toUpperCase().replace(/[^A-Z0-9 .,\-+=\/*#]/g, '').replace(/\s+/g, ' ').trim().slice(0, 30);
+function ncFileText(numStr, comment, lines, end) {
+  return ['%', `O${numStr}${comment ? '(' + comment + ')' : ''}`, ...lines, ...(end ? [end] : []), '%'].join('\r\n') + '\r\n';
+}
+const NC_END = ['без окончания (вставлю в свою программу)', 'M99 — подпрограмма', 'M30 — отдельная программа'];
+const NC_EXT = ['O1234 — без расширения', 'O1234.NC', 'O1234.TXT'];
+async function ncSend(name, text) {
+  const initData = tg && tg.initData;
+  if (!initData || !Sync.enabled) {                 // не из Telegram (например, в браузере на компьютере) — просто скачать
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'application/octet-stream' })); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    return;
+  }
+  choice('Отправляю…', `Файл <b>${esc(name)}</b> уходит вам в чат с ботом.`, []);
+  let msg, okk = false;
+  try {
+    const r = await fetch(SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/' + NOTIFY_FN, {
+      method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'file', initData, name, content: text })
+    });
+    const res = await r.json().catch(() => ({}));
+    if (r.ok && res.ok) { okk = true; msg = `Файл <b>${esc(name)}</b> пришёл вам в чат с ботом.<br><br>На компьютере: откройте этот чат в Telegram → скачайте файл → скопируйте на флешку.`; }
+    else if (!res.error) msg = 'В Supabase стоит старая версия функции notify — обновите её код (Edge Functions → notify → Code).';
+    else msg = esc(res.error || ('ошибка ' + r.status));
+  } catch (e) { msg = 'Нет связи: ' + esc(e.message || String(e)); }
+  document.querySelectorAll('.modal-bg').forEach(m => m.remove());
+  choice(okk ? '✅ Готово' : '⚠️ Не отправлено', msg, [['Понятно', okk ? 'orange' : 'secondary']]);
 }
 
 function viewCalcMenu() {

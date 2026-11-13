@@ -1,5 +1,5 @@
 // ============================================================
-// SwissControl: уведомления об изменениях в графике (версия 1.19)
+// SwissControl: уведомления об изменениях в графике + файлы программ в Telegram (версия 1.22)
 // Supabase → Edge Functions → Deploy a new function → Via Editor.
 // Имя функции: notify. Вставьте ВЕСЬ этот текст вместо примера и нажмите Deploy.
 // Нужен секрет TELEGRAM_BOT_TOKEN (Edge Functions → Secrets).
@@ -8,6 +8,7 @@
 
 const OWNER_ID = 381731875;                         // владелец (админ)
 const EDIT_ROLES = ['setter'];                      // кто ещё может менять график
+const FILE_ROLES = ['setter', 'operator', 'qc', 'manager'];   // кто может получать файлы программ (себе в чат)
 const APP_URL_DEFAULT = 'https://atlaskh.github.io/swisscontrol/?open=schedule';   // сразу на вкладку «График»
 const MAX_AGE_SEC = 7 * 24 * 3600;                  // подпись Telegram действует не дольше недели
 const DAY_START = 6, NIGHT_START = 18;
@@ -87,6 +88,28 @@ async function tgSend(token: string, chatId: number, text: string, appUrl: strin
   return res;
 }
 
+// ---------- файл программы: бот присылает его самому человеку (для флешки) ----------
+const FILE_NAME = /^O\d{1,8}(\.(NC|TXT|nc|txt))?$/;
+const FILE_TEXT = /^[\x09\x0A\x0D\x20-\x7E]*$/;          // станку — только латиница, цифры и знаки
+async function sendFile(user: { id: number }, body: any, token: string): Promise<Response> {
+  if (Number(user.id) !== OWNER_ID) {
+    const u = await db('users?select=role&id=eq.' + encodeURIComponent(String(user.id)));
+    if (!u.length || !FILE_ROLES.includes(u[0].role)) return json({ error: 'нет доступа — дождитесь, пока админ одобрит заявку' }, 403);
+  }
+  const name = String(body.name || ''), text = String(body.content || '');
+  if (!FILE_NAME.test(name)) return json({ error: 'имя файла должно быть вида O1234' }, 400);
+  if (!text.length || text.length > 200000) return json({ error: 'файл пустой или слишком большой' }, 400);
+  if (!FILE_TEXT.test(text)) return json({ error: 'в программе есть русские буквы или спецсимволы — станок их не прочитает' }, 400);
+  const fd = new FormData();
+  fd.append('chat_id', String(user.id));
+  fd.append('document', new Blob([text], { type: 'text/plain' }), name);
+  fd.append('caption', '📄 ' + name + ' — скачайте файл и скопируйте на флешку');
+  const r = await fetch('https://api.telegram.org/bot' + token + '/sendDocument', { method: 'POST', body: fd });
+  const res = await r.json().catch(() => ({ ok: false, description: 'HTTP ' + r.status }));
+  if (!res.ok) return json({ error: /blocked|chat not found|initiate/i.test(res.description || '') ? 'бот не может написать вам — нажмите «Старт» в чате с ботом' : String(res.description || 'ошибка Telegram') }, 502);
+  return json({ ok: true });
+}
+
 // ---------- обработчик ----------
 export async function handler(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -101,6 +124,7 @@ export async function handler(req: Request): Promise<Response> {
   catch (e) { return json({ error: (e as Error).message }, 401); }
 
   try {
+    if (body.action === 'file') return await sendFile(user, body, token);
     if (Number(user.id) !== OWNER_ID) {
       const u = await db('users?select=role&id=eq.' + encodeURIComponent(String(user.id)));
       if (!u.length || !EDIT_ROLES.includes(u[0].role)) return json({ error: 'нет прав на изменение графика' }, 403);
