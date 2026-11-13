@@ -55,6 +55,33 @@ body { background: linear-gradient(180deg, #F4F7F9 0%, #EAEFF4 100%); color: #3A
 .notify-box { border-radius: 14px; padding: 10px 12px; font-size: 13px; margin-top: 10px; background: #EEF3FB; border: 1px solid #C9D8F0; color: #23426E; line-height: 1.45; }
 .notify-box.ok { background: #EAF6EE; border-color: #BFE3CB; color: #1E5A33; }
 .notify-box.warn { background: #FDF1E7; border-color: #F2CDAE; color: #7A4A20; }
+.cn-card { padding: 10px; }
+.cn-top .seg { margin-bottom: 8px; } .cn-top .input-group { margin-bottom: 6px; }
+.cn-wrap { border-radius: 14px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; background: #13202F; }
+.cn-svg { display: block; width: 100%; height: auto; }
+.cn-bg { fill: #13202F; }
+.cn-svg .g { stroke: #1C2D40; stroke-width: .6; } .cn-svg .gM { stroke: #2A425B; stroke-width: .8; }
+.cn-axis { stroke: #E28743; stroke-width: 1; stroke-dasharray: 10 4 2 4; }
+.cn-z0 { stroke: #5E7A96; stroke-width: 1; stroke-dasharray: 3 3; }
+.cn-ax { fill: #7F99B3; font-size: 10px; font-weight: 700; }
+.cn-part { fill: rgba(91,155,213,.28); } .cn-part.m { fill: rgba(91,155,213,.10); }
+.cn-line { fill: none; stroke: #E8F0F8; stroke-width: 2; stroke-linejoin: round; } .cn-line.m { stroke: rgba(232,240,248,.3); stroke-width: 1.2; }
+.cn-prog { fill: none; stroke: #E28743; stroke-width: 1.5; stroke-dasharray: 5 3; }
+.cn-hl { fill: none; stroke: #FFD166; stroke-width: 4; stroke-linecap: round; opacity: .85; }
+.cn-tp { fill: #FFD166; }
+.cn-hit { fill: transparent; }
+.cn-pt { fill: #13202F; stroke: #E8F0F8; stroke-width: 2; } .cn-pt.on { fill: #E28743; stroke: #fff; }
+.cn-num { fill: #B8C8D8; font-size: 10px; font-weight: 800; text-anchor: middle; pointer-events: none; }
+.cn-lbl { fill: #E8F0F8; font-size: 11px; font-weight: 700; pointer-events: none; }
+.cn-nose { fill: rgba(226,135,67,.25); stroke: #E28743; stroke-width: 1; } .cn-tool { fill: #FFD166; }
+.cn-tools { display: flex; gap: 6px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+.cn-snap { margin-left: auto; font-size: 11px; color: #7B8E9E; font-weight: 700; display: flex; gap: 4px; align-items: center; }
+.cn-snap .chip { padding: 4px 7px; font-size: 12px; }
+.cn-ph { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; gap: 8px; }
+.cn-sub { font-size: 11px; font-weight: 800; color: #7B8E9E; text-transform: uppercase; margin: 6px 0; }
+.cn-ang { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: end; margin-bottom: 8px; } .cn-ang .input-group { margin-bottom: 0; } .cn-ang .mini-btn { height: 42px; }
+.cn-code { background: #13202F; color: #E8F0F8; border-radius: 12px; padding: 8px 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; max-height: 340px; overflow: auto; }
+.cn-cl { padding: 3px 12px; cursor: pointer; white-space: pre; } .cn-cl.on { background: rgba(255,209,102,.18); color: #FFD166; } .cn-cl.run { background: rgba(226,135,67,.35); }
 .warn-box { background: #FDF1E7; border: 1px solid #F2CDAE; border-radius: 14px; padding: 10px 12px; font-size: 13px; margin-top: 10px; color: #7A4A20; }
 .roster-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; background: #fff; border: 1px solid #DCE3EB; border-radius: 18px; box-shadow: 0 8px 24px rgba(160,180,200,.08); }
 table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
@@ -654,8 +681,8 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.20';
-const APP_DATE = '09.11.2026';
+const APP_VERSION = '1.21';
+const APP_DATE = '13.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
 
@@ -1163,6 +1190,7 @@ function barLiveUpdate(t) {
 
 const views = { list: viewList, machine: viewMachine, tools: viewTools, changes: viewChanges, program: viewProgram, drawing: viewDrawing, calendar: viewCalendar, day: viewDay, bar: viewBar };
 function afterRender() {
+  if (ui.tab === 'threads' && ui.calc === 'cnt') cntAttach();
   if (ui.tab === 'schedule' && ui.sched && ui.sched.scrollToday && document.getElementById('roster-wrap')) {
     ui.sched.scrollToday = false; schedScrollToToday();
   }
@@ -1748,6 +1776,7 @@ function g76Code(res, z) {
 
 /* ---------- экраны раздела «Резьбы» ---------- */
 ui.tab = 'machines';
+ui.calc = null;                                   // раздел «Расчёты»: null — меню, 'thr' — резьбы, 'cnt' — контур
 ui.thr = { step: 'type', kind: null, d: null, P: null, cls: null, z: '', tpl: false };
 const KIND_NAME = { ext: 'Наружная резьба', int: 'Внутренняя резьба' };
 
@@ -1758,7 +1787,7 @@ function thrHeader(title, sub) { return header(title, sub, ui.thr.step !== 'type
 
 function viewThreads() {
   const s = ui.thr;
-  if (s.step === 'type') return header('Тип резьбы', 'ГОСТ 24705-2004 / ISO 965 · метрическая', false) +
+  if (s.step === 'type') return header('Тип резьбы', 'ГОСТ 24705-2004 / ISO 965 · метрическая', true) +
     `<div class="kind-card" data-act="thrKind" data-k="int">${NUT_SVG}<div class="kind-lbl">Внутренняя резьба</div></div>
      <div class="kind-card" data-act="thrKind" data-k="ext">${BOLT_SVG}<div class="kind-lbl">Наружная резьба</div></div>`;
 
@@ -1861,11 +1890,692 @@ function viewStub(title, sub, text) {
   return header(title, sub, false) + `<div class="ui-card"><div class="empty" style="padding:30px 10px">🛠 ${text}</div></div>`;
 }
 
+/* =====================================================================
+   КОНТУР: расчёт сложной геометрии точения и G-код (Fanuc 0i-TF)
+   Внутренняя система координат («каноническая»): u = Z (в тело детали от
+   обрабатываемого торца), v = радиус (X/2, от оси наружу). Знаки X/Z для
+   главного шпинделя и противошпинделя применяются только при выводе кода.
+   ===================================================================== */
+const CNT = (() => {
+  const EPS = 1e-9, DEG = Math.PI / 180;
+  const P = (u, v) => ({ u, v });
+  const add = (a, b) => P(a.u + b.u, a.v + b.v), sub = (a, b) => P(a.u - b.u, a.v - b.v), mul = (a, k) => P(a.u * k, a.v * k);
+  const dot = (a, b) => a.u * b.u + a.v * b.v, crs = (a, b) => a.u * b.v - a.v * b.u, len = a => Math.hypot(a.u, a.v);
+  const nrm = a => { const l = len(a); return l < EPS ? P(0, 0) : mul(a, 1 / l); };
+  const left = a => P(-a.v, a.u);
+  const dist = (a, b) => len(sub(a, b));
+  const nearest = (pts, ref) => pts.reduce((b, p) => (!b || dist(p, ref) < dist(b, ref) ? p : b), null);
+
+  /* ---------- элементы: L — прямая, A — дуга ---------- */
+  const tanAt = (e, p) => {
+    if (e.t === 'L') return nrm(sub(e.b, e.a));
+    const t = nrm(left(sub(p, e.c)));
+    return e.ccw ? t : mul(t, -1);
+  };
+  const tStart = e => tanAt(e, e.a), tEnd = e => tanAt(e, e.b);
+  function sweep(e) {
+    const a0 = Math.atan2(e.a.v - e.c.v, e.a.u - e.c.u), a1 = Math.atan2(e.b.v - e.c.v, e.b.u - e.c.u);
+    let d = a1 - a0;
+    if (e.ccw) { while (d < -1e-12) d += 2 * Math.PI; } else { while (d > 1e-12) d -= 2 * Math.PI; }
+    return { a0, d };
+  }
+  // положение точки на элементе: 0 — начало, 1 — конец (может выйти за пределы)
+  function param(e, p) {
+    if (e.t === 'L') { const d = sub(e.b, e.a), L2 = dot(d, d); return L2 < EPS ? 0 : dot(sub(p, e.a), d) / L2; }
+    const { a0, d } = sweep(e);
+    if (Math.abs(d) < EPS) return 0;
+    let ang = Math.atan2(p.v - e.c.v, p.u - e.c.u) - a0;
+    while (ang > Math.PI) ang -= 2 * Math.PI;
+    while (ang < -Math.PI) ang += 2 * Math.PI;
+    // приводим к направлению дуги
+    if (e.ccw && ang < -1e-7) ang += 2 * Math.PI;
+    if (!e.ccw && ang > 1e-7) ang -= 2 * Math.PI;
+    return ang / d;
+  }
+  const elLen = e => e.t === 'L' ? dist(e.a, e.b) : Math.abs(sweep(e).d) * e.r;
+  function arcFrom(a, b, R, bulgeLeft) {
+    const d = sub(b, a), L = len(d);
+    if (!(R > 0) || R < L / 2 - 1e-9) return null;
+    const h = Math.sqrt(Math.max(0, R * R - L * L / 4)), m = mul(add(a, b), 0.5), nl = left(nrm(d));
+    return { t: 'A', a, b, c: add(m, mul(nl, bulgeLeft ? -h : h)), r: R, ccw: !bulgeLeft };
+  }
+  // смещение элемента на d (плюс — влево по ходу движения)
+  function offEl(e, d) {
+    if (e.t === 'L') { const n = mul(left(nrm(sub(e.b, e.a))), d); return Object.assign({}, e, { a: add(e.a, n), b: add(e.b, n) }); }
+    const R2 = e.r + (e.ccw ? -d : d);
+    if (R2 <= 1e-9) return null;
+    const k = R2 / e.r;
+    return Object.assign({}, e, { r: R2, a: add(e.c, mul(sub(e.a, e.c), k)), b: add(e.c, mul(sub(e.b, e.c), k)) });
+  }
+  // пересечение «бесконечных» прямых/окружностей
+  function isect(e1, e2) {
+    if (e1.t === 'L' && e2.t === 'L') {
+      const d1 = sub(e1.b, e1.a), d2 = sub(e2.b, e2.a), cr = crs(d1, d2);
+      if (Math.abs(cr) < 1e-12 * Math.max(1, len(d1) * len(d2))) return [];
+      return [add(e1.a, mul(d1, crs(sub(e2.a, e1.a), d2) / cr))];
+    }
+    if (e1.t !== 'L' && e2.t === 'L') return isect(e2, e1);
+    if (e1.t === 'L') {
+      const d = nrm(sub(e1.b, e1.a)), f = sub(e1.a, e2.c), b = dot(f, d), c = dot(f, f) - e2.r * e2.r, disc = b * b - c;
+      if (disc < -1e-10) return [];
+      const s = Math.sqrt(Math.max(0, disc));
+      return [add(e1.a, mul(d, -b - s)), add(e1.a, mul(d, -b + s))];
+    }
+    const D = sub(e2.c, e1.c), dd = len(D);
+    if (dd < 1e-12) return [];
+    const a = (e1.r * e1.r - e2.r * e2.r + dd * dd) / (2 * dd), h2 = e1.r * e1.r - a * a;
+    if (h2 < -1e-9) return [];
+    const h = Math.sqrt(Math.max(0, h2)), m = add(e1.c, mul(D, a / dd)), pr = left(mul(D, 1 / dd));
+    return [add(m, mul(pr, h)), add(m, mul(pr, -h))];
+  }
+  const foot = (e, p) => {
+    if (e.t === 'L') { const d = nrm(sub(e.b, e.a)); return add(e.a, mul(d, dot(sub(p, e.a), d))); }
+    return add(e.c, mul(nrm(sub(p, e.c)), e.r));
+  };
+
+  /* ---------- где материал: слева или справа по ходу контура ---------- */
+  function matLeftOf(pts, internal) {
+    const poly = pts.map(p => P(p.u, p.v)).concat([P(pts[pts.length - 1].u, 0), P(pts[0].u, 0)]);
+    let A = 0;
+    for (let i = 0; i < poly.length; i++) A += crs(poly[i], poly[(i + 1) % poly.length]);
+    let ml;
+    if (Math.abs(A) > 1e-9) ml = A > 0;
+    else {                                            // чистый торец: материал дальше по +Z
+      const d = nrm(sub(pts[pts.length - 1], pts[0]));
+      return left(d).u > 0;
+    }
+    return internal ? !ml : ml;
+  }
+
+  /* ---------- построение: точки → элементы → углы (фаски/радиусы) ---------- */
+  // pts: [{x: Ø, z, seg: {t:'line'|'arc', r, cvx}, cor: {t:'none'|'C'|'CA'|'R', v, a}}]
+  function build(prof) {
+    const errs = [], warns = [];
+    const pts = (prof.pts || []).map(p => P(+p.z || 0, (+p.x || 0) / 2));
+    if (pts.length < 2) return { errs: ['Нужно хотя бы 2 точки'], warns, chain: [], pts };
+    const internal = prof.kind === 'int';
+    const matLeft = matLeftOf(pts, internal);
+    const nm = matLeft ? -1 : 1;                      // сторона инструмента (+1 — слева)
+    // отрезки между точками
+    const seg = [null];
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i], s = (prof.pts[i].seg) || { t: 'line' };
+      if (dist(a, b) < 1e-9) { seg.push(null); continue; }
+      let e = null;
+      if (s.t === 'arc') {
+        e = arcFrom(a, b, +s.r, s.cvx ? !matLeft : matLeft);
+        if (!e) errs.push(`Точка ${i + 1}: радиус дуги R${fmt(+s.r || 0)} меньше половины расстояния между точками (${fmt(dist(a, b) / 2)})`);
+      }
+      if (!e) e = { t: 'L', a, b };
+      e.src = { k: 'seg', i };
+      seg.push(e);
+    }
+    // углы
+    const corners = {};
+    for (let i = 1; i < pts.length - 1; i++) {
+      const c = prof.pts[i].cor;
+      if (!c || c.t === 'none' || !(+c.v > 0)) continue;
+      const e1 = seg[i], e2 = seg[i + 1], V = pts[i];
+      if (!e1 || !e2) { errs.push(`Точка ${i + 1}: фаска/радиус не ставится рядом с нулевым отрезком`); continue; }
+      const t1 = tEnd(e1), t2 = tStart(e2), cr = crs(t1, t2);
+      if (Math.abs(cr) < 1e-9 && dot(t1, t2) > 0) { warns.push(`Точка ${i + 1}: угла нет (отрезки на одной прямой) — фаска/радиус пропущены`); continue; }
+      let T1, T2, mid;
+      if (c.t === 'R') {
+        const r = +c.v, side = cr > 0 ? 1 : -1;
+        const o1 = offEl(e1, side * r), o2 = offEl(e2, side * r);
+        const F = o1 && o2 ? nearest(isect(o1, o2), V) : null;
+        if (!F) { errs.push(`Точка ${i + 1}: радиус R${fmt(r)} не вписывается`); continue; }
+        T1 = foot(e1, F); T2 = foot(e2, F);
+        mid = { t: 'A', a: T1, b: T2, c: F, r, ccw: side > 0 };
+      } else if (c.t === 'C') {
+        const d = +c.v;
+        T1 = pointFrom(e1, V, d, true); T2 = pointFrom(e2, V, d, false);
+        if (!T1 || !T2) { errs.push(`Точка ${i + 1}: фаска C${fmt(d)} больше отрезка`); continue; }
+        mid = { t: 'L', a: T1, b: T2 };
+      } else if (c.t === 'CA') {
+        if (e1.t !== 'L' || e2.t !== 'L') { errs.push(`Точка ${i + 1}: фаска с углом — только между прямыми`); continue; }
+        const L = +c.v, a = (+c.a || 45) * DEG;
+        if (!(a > 0 && a < Math.PI / 2)) { errs.push(`Точка ${i + 1}: угол фаски должен быть от 0 до 90°`); continue; }
+        const d1 = nrm(sub(e1.b, e1.a)), d2 = nrm(sub(e2.b, e2.a)), den = crs(d1, d2);
+        let best = null;
+        for (const sv of [1, -1]) for (const sk of [1, -1]) {
+          const w = mul(P(Math.cos(a), sv * Math.sin(a)), sk * L / Math.cos(a));
+          const ta = crs(w, d2) / den, tb = crs(d1, w) / den;
+          if (ta > 1e-9 && tb > 1e-9 && (!best || ta + tb < best.ta + best.tb)) best = { ta, tb };
+        }
+        if (!best) { errs.push(`Точка ${i + 1}: фаска ${fmt(L)}×${fmt(+c.a)}° не строится в этом углу`); continue; }
+        T1 = sub(V, mul(d1, best.ta)); T2 = add(V, mul(d2, best.tb));
+        mid = { t: 'L', a: T1, b: T2 };
+      } else continue;
+      corners[i] = { T1, T2, mid };
+    }
+    // обрезаем отрезки по фаскам/радиусам и собираем цепочку
+    const chain = [];
+    for (let i = 1; i < pts.length; i++) {
+      const e = seg[i];
+      if (e) {
+        const a = corners[i - 1] ? corners[i - 1].T2 : e.a, b = corners[i] ? corners[i].T1 : e.b;
+        const pa = param(e, a), pb = param(e, b);
+        if (pa > pb + 1e-7 || pa < -1e-7 || pb > 1 + 1e-7) errs.push(`Отрезок ${i}–${i + 1}: фаски/радиусы на его концах больше самого отрезка`);
+        if (dist(a, b) > 1e-7) chain.push(Object.assign({}, e, { a, b }));
+      }
+      if (corners[i]) chain.push(Object.assign(corners[i].mid, { src: { k: 'cor', i } }));
+    }
+    return { errs, warns, chain, pts, nm, internal };
+  }
+  // точка на элементе на расстоянии d от вершины V (по хорде)
+  function pointFrom(e, V, d, atEnd) {
+    if (e.t === 'L') {
+      const dir = nrm(sub(e.b, e.a)), L = dist(e.a, e.b);
+      if (d > L + 1e-9) return null;
+      return atEnd ? sub(V, mul(dir, d)) : add(V, mul(dir, d));
+    }
+    const cand = isect(e, { t: 'A', c: V, r: d }).filter(p => { const t = param(e, p); return t >= -1e-7 && t <= 1 + 1e-7; });
+    if (!cand.length) return null;
+    return nearest(cand, atEnd ? e.a : e.b);
+  }
+
+  /* ---------- поправка на радиус пластины (условная вершина) ---------- */
+  function compensate(b, rn) {
+    const warns = [];
+    if (!(rn > 0) || !b.chain.length) return { path: b.chain.map(e => Object.assign({}, e)), warns, tip: P(0, 0) };
+    const off = [];
+    for (const [ci, e] of b.chain.entries()) {
+      const o = offEl(e, b.nm * rn);
+      if (o) o.ci = ci;
+      if (!o) { warns.push(`Вогнутый радиус R${fmt(e.r)} меньше радиуса пластины R${fmt(rn)} — такой радиус пластина не пройдёт`); off.push(Object.assign({}, e, { ci })); }
+      else off.push(o);
+    }
+    const out = [];
+    for (let k = 0; k < off.length; k++) {
+      const e = off[k];
+      out.push(e);
+      if (k === off.length - 1) break;
+      const n = off[k + 1], V = b.chain[k].b;
+      if (dist(e.b, n.a) < 1e-9) continue;                 // касательный стык
+      const ref = mul(add(e.b, n.a), 0.5);
+      const I = nearest(isect(e, n), ref);
+      if (I && dist(I, V) < rn * 20 + 1) { e.b = I; n.a = I; }
+      else {                                               // острый угол без пересечения — обходим дугой
+        const cr = crs(tEnd(b.chain[k]), tStart(b.chain[k + 1]));
+        out.push({ t: 'A', a: e.b, b: n.a, c: V, r: rn, ccw: cr > 0, src: b.chain[k].src, ci: -1 });
+      }
+    }
+    // проверка: не «перевернулся» ли короткий участок
+    out.forEach(e => {
+      const src = b.chain[e.ci];
+      if (src && e.t === 'L' && src.t === 'L' && dot(sub(e.b, e.a), sub(src.b, src.a)) < -1e-9)
+        warns.push(`Участок слишком короткий для поправки на R${fmt(rn)} — проверьте траекторию`);
+    });
+    const tip = P(rn, b.internal ? rn : -rn);              // от центра радиуса к условной вершине
+    const path = out.map(e => {
+      const m = Object.assign({}, e, { a: add(e.a, tip), b: add(e.b, tip) });
+      if (e.t === 'A') m.c = add(e.c, tip);
+      return m;
+    });
+    // свободные концы контура: сдвигаем вдоль отрезка, чтобы основная координата совпала с чертежом
+    // (торец до X-0.5 остаётся X-0.5, цилиндр до Z10 остаётся Z10)
+    const fixEnd = (e, key, orig) => {
+      if (e.t !== 'L') return;
+      const d = nrm(sub(e.b, e.a)), p = e[key];
+      const t = Math.abs(d.u) >= Math.abs(d.v) ? (orig.u - p.u) / d.u : (orig.v - p.v) / d.v;
+      e[key] = add(p, mul(d, t));
+    };
+    fixEnd(path[0], 'a', b.chain[0].a);
+    fixEnd(path[path.length - 1], 'b', b.chain[b.chain.length - 1].b);
+    return { path, warns, tip };
+  }
+
+  /* ---------- формат чисел как в программах: 6.95 / 8.0 / 0.0 ---------- */
+  function fmt(v) {
+    let s = Math.round(v * 1000) / 1000;
+    if (Math.abs(s) < 5e-4) s = 0;
+    let t = s.toFixed(3).replace(/0+$/, '');
+    if (t.endsWith('.')) t += '0';
+    return t;
+  }
+  const isRound = a => Math.abs(Math.round(a * 1000) / 1000 - a) < 1e-6;
+
+  /* ---------- G-код ---------- */
+  // prof: { pts, kind, sx, sz, rn, f, fmt:'A'|'full', inv, cyc:'none'|'G71'|'G72', cs:{x0, dz, d, e, u, w, g70} }
+  function program(prof) {
+    const b = build(prof);
+    const res = { lines: [], map: [], errs: b.errs.slice(), warns: b.warns.slice(), build: b, path: [] };
+    if (!b.chain.length) return res;
+    const rn = Math.max(0, +prof.rn || 0);
+    const c = compensate(b, rn);
+    res.warns.push(...c.warns);
+    res.path = c.path; res.tip = c.tip;
+    const sx = prof.sx === -1 ? -1 : 1, sz = prof.sz === -1 ? -1 : 1;
+    const X = p => sx * 2 * p.v, Z = p => sz * p.u;
+    const cyc = prof.cyc === 'G71' || prof.cyc === 'G72' ? prof.cyc : null;
+    const cs = prof.cs || {}, F = fmt(+prof.f || 0.1);
+    const out = (s, k) => { res.lines.push(s); res.map.push(k == null ? -1 : k); };
+    const path = c.path;
+    if (cyc) {
+      const minU = Math.min(...path.map(e => Math.min(e.a.u, e.b.u)));
+      const x0 = +cs.x0 || 0, dz = cs.dz == null ? 1 : +cs.dz;
+      const uSign = (b.internal ? -1 : 1) * sx, wSign = -sz;
+      out(`G0X${fmt(sx * x0)}Z${fmt(sz * (minU - dz))}`);
+      if (cyc === 'G71') out(`G71U${fmt(+cs.d || 0.2)}R${fmt(+cs.e || 0.2)}`);
+      else out(`G72W${fmt(+cs.d || 1)}R${fmt(+cs.e || 0.2)}`);
+      out(`${cyc}P10Q20U${fmt(uSign * (+cs.u || 0))}W${fmt(wSign * (+cs.w || 0))}F${F}`);
+      // проверка монотонности для цикла
+      if (cyc === 'G71') {
+        const dir = Math.sign(path[path.length - 1].b.u - path[0].a.u) || 1;
+        if (path.some(e => (e.b.u - e.a.u) * dir < -1e-6)) res.warns.push('G71: контур местами идёт назад по Z — цикл так не обработает (поднутрение)');
+      } else {
+        const dir = Math.sign(path[path.length - 1].b.v - path[0].a.v) || -1;
+        if (path.some(e => (e.b.v - e.a.v) * dir < -1e-6)) res.warns.push('G72: контур местами идёт назад по X — цикл так не обработает');
+      }
+    }
+    let lx = null, lz = null;
+    const first = path[0].a;
+    lx = fmt(X(first)); lz = fmt(Z(first));
+    if (cyc) out(`N10${cyc === 'G72' ? 'G0' : 'G1'}X${lx}Z${lz}`, 0);
+    else out(`G1X${lx}Z${lz}F${F}`, 0);
+    const startIdx = res.lines.length;
+    path.forEach((e, k) => {
+      const ex = fmt(X(e.b)), ez = fmt(Z(e.b));
+      let s = '';
+      if (e.t === 'A') {
+        const ccwOut = e.ccw !== (sx * sz < 0) !== !!prof.inv;
+        s = `${ccwOut ? 'G3' : 'G2'}X${ex}Z${ez}R${fmt(e.r)}`;
+      } else {
+        const dX = X(e.b) - X(e.a), dZ = Z(e.b) - Z(e.a);
+        const sloped = Math.abs(dX) > 1e-6 && Math.abs(dZ) > 1e-6;
+        let ang = Math.atan2(dX / 2, dZ) / DEG;
+        if (ang < 0) ang += 180;
+        if (ang >= 180 - 1e-9) ang -= 180;
+        if (sloped && prof.fmt !== 'full' && isRound(ang)) {
+          const nx = path[k + 1];
+          let useZ;
+          if (nx) { const nd = nx.t === 'L' ? sub(nx.b, nx.a) : tStart(nx); useZ = Math.abs(nd.v) > Math.abs(nd.u); }
+          else useZ = Math.abs(dZ) >= Math.abs(dX / 2);
+          s = useZ ? `G1Z${ez},A${fmt(ang)}` : `G1X${ex},A${fmt(ang)}`;
+        } else {
+          s = 'G1' + (ex !== lx ? 'X' + ex : '') + (ez !== lz ? 'Z' + ez : '');
+          if (s === 'G1') s = '';
+        }
+      }
+      lx = ex; lz = ez;
+      if (s) out(s, k);
+    });
+    if (cyc) {
+      // N20 — на последнюю строку контура
+      const li = res.lines.length - 1;
+      if (li >= startIdx) res.lines[li] = 'N20' + res.lines[li];
+      if (cs.g70 !== false) out(`G70P10Q20F${F}`);
+    }
+    return res;
+  }
+
+  // точки траектории для рисования/симуляции
+  function sample(e, step) {
+    if (e.t === 'L') return [e.a, e.b];
+    const { a0, d } = sweep(e), n = Math.max(4, Math.ceil(Math.abs(d) * e.r / (step || 0.05)));
+    const out = [];
+    for (let i = 0; i <= n; i++) { const a = a0 + d * i / n; out.push(P(e.c.u + e.r * Math.cos(a), e.c.v + e.r * Math.sin(a))); }
+    return out;
+  }
+
+  return { build, compensate, program, fmt, sample, elLen, P, dist };
+})();
+
+
+/* ---------- экран «Контур» ---------- */
+const CNT_VW = 360, CNT_VH = 270;
+const CNT_DEF = () => ({
+  pts: [{ x: 0, z: 0 }, { x: 5, z: 0, cor: { t: 'C', v: 0.5 } }, { x: 5, z: 6, cor: { t: 'R', v: 0.5 } }, { x: 9, z: 6, cor: { t: 'C', v: 0.5 } }, { x: 9, z: 14 }, { x: 12, z: 14 }],
+  kind: 'ext', sp: 'main', sx: 1, sz: 1, rn: 0.4, f: 0.1, fmt: 'A', inv: false, cyc: 'none',
+  cs: { x0: 12, dz: 1, d: 0.2, e: 0.2, u: 0, w: 0, g70: true }, sel: 1, snap: 0.1
+});
+const CNT_EX = {
+  o5114: { name: 'Втулка 713263.058 (O5114, G71)', p: () => ({
+    pts: [{ x: 6.95, z: 0 }, { x: 6.95, z: 1.1, cor: { t: 'C', v: 0.3 } }, { x: 4.8, z: 1.1 }, { x: 4.8, z: 1.9 },
+      { x: 5.85, z: 1.9 + 0.525 / Math.tan(30 * Math.PI / 180) }, { x: 5.85, z: 7 }, { x: 3.45, z: 8.2 }, { x: 8, z: 8.2 }],
+    kind: 'ext', sp: 'main', sx: 1, sz: 1, rn: 0, f: 0.05, fmt: 'A', cyc: 'G71', cs: { x0: 7, dz: 1, d: 0.2, e: 0.2, u: 0.2, w: 0, g70: true } }) },
+  o5207: { name: 'Хвостовик 5107 (O5207, противошпиндель, G72)', p: () => ({
+    pts: [{ x: 14, z: 10.5 }, { x: 14, z: 10, cor: { t: 'C', v: 0.5 } }, { x: 8.1, z: 10 }, { x: 8.1, z: 0, cor: { t: 'C', v: 1.4 } }, { x: -0.5, z: 0 }],
+    kind: 'ext', sp: 'sub', sx: -1, sz: -1, rn: 0, f: 0.07, fmt: 'A', cyc: 'G72', cs: { x0: 14, dz: 1, d: 1, e: 0.2, u: 0, w: 0, g70: false } }) },
+  sphere: { name: 'Сфера на торце + радиус + фаска 30°', p: () => ({
+    pts: [{ x: 0, z: 0 }, { x: 8, z: 4, seg: { t: 'arc', r: 4, cvx: true } }, { x: 8, z: 9, cor: { t: 'R', v: 1 } }, { x: 12, z: 9, cor: { t: 'CA', v: 0.8, a: 30 } }, { x: 12, z: 16 }, { x: 14, z: 16 }],
+    kind: 'ext', sp: 'main', sx: 1, sz: 1, rn: 0.4, f: 0.1, fmt: 'A', cyc: 'none' }) },
+  bore: { name: 'Расточка: фаска входа, ступень с R', p: () => ({
+    pts: [{ x: 12, z: 0, cor: { t: 'none' } }, { x: 10, z: 1 }, { x: 10, z: 6, cor: { t: 'R', v: 0.5 } }, { x: 7, z: 6, cor: { t: 'C', v: 0.3 } }, { x: 7, z: 14 }, { x: 5, z: 14 }],
+    kind: 'int', sp: 'main', sx: 1, sz: 1, rn: 0.4, f: 0.08, fmt: 'A', cyc: 'none' }) }
+};
+ui.cnt = (() => { try { const s = JSON.parse(localStorage.getItem('sc_cnt') || 'null'); if (s && Array.isArray(s.pts) && s.pts.length >= 2) return Object.assign(CNT_DEF(), s); } catch (e) {} return CNT_DEF(); })();
+ui.cntView = null; ui.cntHist = []; ui.cntHl = null;
+let cntSaveT = null;
+function cntSave() { clearTimeout(cntSaveT); cntSaveT = setTimeout(() => { try { localStorage.setItem('sc_cnt', JSON.stringify(ui.cnt)); } catch (e) {} }, 400); }
+function cntPush() { ui.cntHist.push(JSON.stringify(ui.cnt)); if (ui.cntHist.length > 40) ui.cntHist.shift(); }
+const cntProf = () => ui.cnt;
+const cntR = () => CNT.program(cntProf());
+
+function cntFit() {
+  const ps = ui.cnt.pts, us = ps.map(p => +p.z || 0), vs = ps.map(p => (+p.x || 0) / 2);
+  let u0 = Math.min(0, ...us), u1 = Math.max(...us), v1 = Math.max(0.5, ...vs);
+  const v0 = Math.min(-v1 * 0.25, ...vs);
+  const pad = 0.12, du = Math.max(1, u1 - u0), dv = Math.max(1, v1 - v0);
+  const s = Math.min(CNT_VW * (1 - 2 * pad) / du, CNT_VH * (1 - 2 * pad) / dv);
+  ui.cntView = { s, ou: (u0 + u1) / 2, ov: (v0 + v1) / 2 };
+}
+const cX = u => CNT_VW / 2 + (u - ui.cntView.ou) * ui.cntView.s;
+const cY = v => CNT_VH / 2 - (v - ui.cntView.ov) * ui.cntView.s;
+const cntPathD = (els, flip) => {
+  let d = '';
+  els.forEach((e, k) => {
+    const s = CNT.sample(e, 0.5 / ui.cntView.s);
+    s.forEach((p, i) => { d += (k === 0 && i === 0 ? 'M' : 'L') + cX(p.u).toFixed(1) + ' ' + cY(flip ? -p.v : p.v).toFixed(1); });
+  });
+  return d;
+};
+function cntSvg(r) {
+  if (!ui.cntView) cntFit();
+  const c = ui.cnt, V = ui.cntView, b = r.build;
+  // сетка: шаг так, чтобы клетки были не мельче ~14 px
+  const g = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20].find(x => x * V.s >= 14) || 50;
+  const uMin = V.ou - CNT_VW / 2 / V.s, uMax = V.ou + CNT_VW / 2 / V.s, vMin = V.ov - CNT_VH / 2 / V.s, vMax = V.ov + CNT_VH / 2 / V.s;
+  let grid = '';
+  for (let u = Math.ceil(uMin / g) * g; u <= uMax; u += g) { const major = Math.abs(Math.round(u / g) % 5) === 0; grid += `<line x1="${cX(u).toFixed(1)}" y1="0" x2="${cX(u).toFixed(1)}" y2="${CNT_VH}" class="${major ? 'gM' : 'g'}"/>`; }
+  for (let v = Math.ceil(vMin / g) * g; v <= vMax; v += g) { const major = Math.abs(Math.round(v / g) % 5) === 0; grid += `<line x1="0" y1="${cY(v).toFixed(1)}" x2="${CNT_VW}" y2="${cY(v).toFixed(1)}" class="${major ? 'gM' : 'g'}"/>`; }
+  let part = '', cont = '', prog = '', tps = '', hl = '';
+  if (b.chain.length) {
+    const first = b.chain[0].a, last = b.chain[b.chain.length - 1].b;
+    const vTop = Math.max(...c.pts.map(p => (+p.x || 0) / 2)) + 1.5;
+    const close = c.kind === 'int' ? `L${cX(last.u)} ${cY(vTop)}L${cX(first.u)} ${cY(vTop)}Z` : `L${cX(last.u)} ${cY(0)}L${cX(first.u)} ${cY(0)}Z`;
+    const closeM = c.kind === 'int' ? `L${cX(last.u)} ${cY(-vTop)}L${cX(first.u)} ${cY(-vTop)}Z` : `L${cX(last.u)} ${cY(0)}L${cX(first.u)} ${cY(0)}Z`;
+    part = `<path d="${cntPathD(b.chain)}${close}" class="cn-part"/><path d="${cntPathD(b.chain, true)}${closeM}" class="cn-part m"/>`;
+    cont = `<path d="${cntPathD(b.chain)}" class="cn-line"/><path d="${cntPathD(b.chain, true)}" class="cn-line m"/>`;
+    if (+c.rn > 0 && r.path.length) prog = `<path d="${cntPathD(r.path)}" class="cn-prog"/>`;
+    // точки касания (рассчитанные, не заданные)
+    const user = c.pts.map(p => CNT.P(+p.z || 0, (+p.x || 0) / 2));
+    b.chain.forEach(e => [e.a, e.b].forEach(p => { if (!user.some(q => CNT.dist(p, q) < 1e-6)) tps += `<circle cx="${cX(p.u).toFixed(1)}" cy="${cY(p.v).toFixed(1)}" r="2.6" class="cn-tp"/>`; }));
+    if (ui.cntHl != null && r.path[ui.cntHl]) hl = `<path d="${cntPathD([r.path[ui.cntHl]])}" class="cn-hl"/>`;
+  }
+  const axisY = cY(0).toFixed(1), z0 = cX(0).toFixed(1);
+  const handles = c.pts.map((p, i) => {
+    const x = cX(+p.z || 0).toFixed(1), y = cY((+p.x || 0) / 2).toFixed(1), on = i === c.sel;
+    return `<g data-pi="${i}"><circle cx="${x}" cy="${y}" r="17" class="cn-hit"/><circle cx="${x}" cy="${y}" r="${on ? 7.5 : 6}" class="cn-pt ${on ? 'on' : ''}"/><text x="${x}" y="${(+y - 11).toFixed(1)}" class="cn-num">${i + 1}</text></g>`;
+  }).join('');
+  const sp = c.pts[c.sel];
+  const selLbl = sp ? `<text x="8" y="${CNT_VH - 8}" class="cn-lbl">т.${c.sel + 1}: Ø${CNT.fmt(+sp.x || 0)}  Z${CNT.fmt(+sp.z || 0)}</text>` : '';
+  const zdir = c.sz === -1 ? 'Z−' : 'Z+';
+  return `<svg viewBox="0 0 ${CNT_VW} ${CNT_VH}" class="cn-svg" xmlns="http://www.w3.org/2000/svg">
+    <rect width="${CNT_VW}" height="${CNT_VH}" class="cn-bg"/>${grid}
+    <line x1="0" y1="${axisY}" x2="${CNT_VW}" y2="${axisY}" class="cn-axis"/>
+    <line x1="${z0}" y1="0" x2="${z0}" y2="${CNT_VH}" class="cn-z0"/>
+    <text x="${(+z0 + 3).toFixed(1)}" y="12" class="cn-ax">Z0</text>
+    <text x="${CNT_VW - 26}" y="${(+axisY - 4).toFixed(1)}" class="cn-ax">${zdir}→</text>
+    ${part}${cont}${prog}${hl}${tps}${handles}<g id="cnt-tool"></g>${selLbl}
+  </svg>`;
+}
+
+const cntMsgs = r => (r.errs.length ? `<div class="warn-box" style="background:#FDECEA;border-color:#F5C2BC;color:#8B2A1E">${r.errs.map(esc).join('<br>')}</div>` : '') +
+  (r.warns.length ? `<div class="warn-box">${r.warns.map(esc).join('<br>')}</div>` : '');
+const cntCode = r => r.lines.map((l, i) => `<div class="cn-cl ${r.map[i] != null && r.map[i] === ui.cntHl ? 'on' : ''}" data-act="cntHl" data-k="${r.map[i]}" data-li="${i}">${esc(l)}</div>`).join('');
+const cntIn = (id, label, v, extra) => `<div class="input-group"><label>${label}</label><input type="text" inputmode="decimal" id="${id}" value="${esc(String(v))}" ${extra || ''}></div>`;
+const cntAngOf = i => {
+  const p = ui.cnt.pts, a = p[i - 1], b = p[i];
+  if (!a || !b) return '';
+  const dz = (+b.z || 0) - (+a.z || 0), dr = ((+b.x || 0) - (+a.x || 0)) / 2;
+  if (Math.abs(dz) < 1e-9 && Math.abs(dr) < 1e-9) return '';
+  return CNT.fmt(Math.atan2(Math.abs(dr), Math.abs(dz)) * 180 / Math.PI);
+};
+
+function cntPointCard() {
+  const c = ui.cnt, i = c.sel, p = c.pts[i];
+  if (!p) return '';
+  const n = c.pts.length, seg = p.seg || { t: 'line' }, cor = p.cor || { t: 'none' };
+  const out = `X${CNT.fmt(c.sx * (+p.x || 0))} Z${CNT.fmt(c.sz * (+p.z || 0))}`;
+  let html = `<div class="ui-card"><div class="cn-ph"><b>Точка ${i + 1}</b><span class="muted">в коде: ${out}</span></div>
+    <div class="two-col">${cntIn('cp-x', 'Ø (диаметр)', CNT.fmt(+p.x || 0))}${cntIn('cp-z', 'Z (от торца)', CNT.fmt(+p.z || 0))}</div>`;
+  if (i > 0) {
+    html += `<div class="cn-sub">Отрезок от точки ${i} к точке ${i + 1}</div>` + seg_('cntSeg', seg.t, [['line', 'Прямая'], ['arc', 'Дуга R']]);
+    if (seg.t === 'arc') html += `<div class="two-col">${cntIn('cp-ar', 'Радиус дуги R', CNT.fmt(+seg.r || 0))}<div class="input-group"><label>Форма</label>${seg_('cntCvx', seg.cvx ? '1' : '0', [['1', 'Выпуклая'], ['0', 'Вогнутая']])}</div></div>`;
+    else html += `<div class="cn-ang">${cntIn('cp-ang', 'Угол к оси Z, °', cntAngOf(i))}<button class="mini-btn" data-act="cntAngZ">по углу → Z</button><button class="mini-btn" data-act="cntAngX">по углу → Ø</button></div>`;
+  }
+  if (i > 0 && i < n - 1) {
+    html += `<div class="cn-sub">Угол в этой точке</div>` + seg_('cntCor', cor.t, [['none', 'Острый'], ['C', 'Фаска C'], ['CA', 'Фаска L×°'], ['R', 'Радиус R']]);
+    if (cor.t === 'C') html += cntIn('cp-cv', 'Фаска C, мм (по обеим сторонам)', CNT.fmt(+cor.v || 0));
+    if (cor.t === 'R') html += cntIn('cp-cv', 'Радиус R, мм', CNT.fmt(+cor.v || 0));
+    if (cor.t === 'CA') html += `<div class="two-col">${cntIn('cp-cv', 'Длина по Z, мм', CNT.fmt(+cor.v || 0))}${cntIn('cp-ca', 'Угол к оси, °', CNT.fmt(+cor.a || 45))}</div>`;
+  }
+  html += `<div class="two-col mt"><button class="action-button secondary" data-act="cntAdd">+ точка после</button><button class="action-button secondary" data-act="cntDel" ${n <= 2 ? 'disabled' : ''}>✕ удалить точку</button></div></div>`;
+  return html;
+}
+const seg_ = (act, cur, opts) => `<div class="seg">${opts.map(([v, l]) => `<div class="seg-i ${cur === v ? 'on' : ''}" data-act="${act}" data-v="${v}">${l}</div>`).join('')}</div>`;
+
+function viewContour() {
+  const c = ui.cnt, r = cntR();
+  const cyc = c.cyc !== 'none';
+  const signs = `X${c.sx < 0 ? '−' : '+'} Z${c.sz < 0 ? '−' : '+'}`;
+  return header('Контур', 'расчёт точек и G-код · Fanuc', true) +
+    `<div class="ui-card cn-top">
+      ${seg_('cntKind', c.kind, [['ext', 'Наружный'], ['int', 'Внутренний']])}
+      ${seg_('cntSp', c.sp, [['main', 'Главный шп.'], ['sub', 'Контршп.'], ['custom', 'Свои ±']])}
+      ${c.sp === 'custom' ? `<div class="two-col">${seg_('cntSx', String(c.sx), [['1', 'X +'], ['-1', 'X −']])}${seg_('cntSz', String(c.sz), [['1', 'Z +'], ['-1', 'Z −']])}</div>` : ''}
+      <div class="two-col">${cntIn('cs-rn', 'R пластины, мм', CNT.fmt(+c.rn || 0))}${cntIn('cs-f', 'Подача F', CNT.fmt(+c.f || 0))}</div>
+      <div class="muted">Знаки в коде: <b>${signs}</b>${+c.rn > 0 ? ' · координаты с поправкой на R' + CNT.fmt(+c.rn) : ' · без поправки на радиус'}</div>
+    </div>
+    <div class="ui-card cn-card">
+      <div id="cnt-wrap" class="cn-wrap">${cntSvg(r)}</div>
+      <div class="cn-tools">
+        <button class="mini-btn" data-act="cntUndo" ${ui.cntHist.length ? '' : 'disabled'}>↶ Отмена</button>
+        <button class="mini-btn" data-act="cntFit">⤢ Вписать</button>
+        <span class="cn-snap">шаг ${[0.01, 0.1, 0.5, 1].map(s => `<span class="chip ${c.snap === s ? 'on' : ''}" data-act="cntSnap" data-v="${s}">${s}</span>`).join('')}</span>
+      </div>
+      <div class="muted" style="margin-top:6px">Тяни точку пальцем · двумя пальцами — масштаб, одним по пустому месту — сдвиг · тап по точке — точные размеры.${+c.rn > 0 ? ' <span style="color:#E28743">Пунктир</span> — траектория условной вершины с поправкой.' : ''}</div>
+    </div>
+    ${cntPointCard()}
+    <div class="ui-card">
+      <div class="cn-ph"><b>Программа</b><span class="muted">${esc(c.cyc === 'none' ? 'чистовой проход' : c.cyc + (c.cs.g70 === false ? '' : ' + G70'))}</span></div>
+      <div id="cnt-msgs">${cntMsgs(r)}</div>
+      <div id="cnt-code" class="cn-code">${cntCode(r)}</div>
+      <div class="two-col mt"><button class="action-button orange" id="cnt-copy" data-act="cntCopy">📋 Копировать</button><button class="action-button secondary" data-act="cntSim">▶ Симуляция</button></div>
+    </div>
+    <div class="ui-card">
+      <div class="section-title">Вывод и цикл</div>
+      ${seg_('cntFmt', c.fmt, [['A', 'Фаски через ,A'], ['full', 'Полные координаты']])}
+      ${seg_('cntCyc', c.cyc, [['none', 'Без цикла'], ['G71', 'G71 (вдоль)'], ['G72', 'G72 (торец)']])}
+      ${cyc ? `<div class="two-col">${cntIn('cs-x0', 'Ø начала цикла', CNT.fmt(+c.cs.x0 || 0))}${cntIn('cs-dz', 'Отход по Z от торца', CNT.fmt(c.cs.dz == null ? 1 : +c.cs.dz))}
+        ${cntIn('cs-d', c.cyc === 'G71' ? 'Глубина U (на сторону)' : 'Глубина W (по Z)', CNT.fmt(+c.cs.d || 0))}${cntIn('cs-e', 'Отскок R', CNT.fmt(+c.cs.e || 0))}
+        ${cntIn('cs-u', 'Припуск по X (на Ø)', CNT.fmt(+c.cs.u || 0))}${cntIn('cs-w', 'Припуск по Z', CNT.fmt(+c.cs.w || 0))}</div>
+        ${seg_('cntG70', c.cs.g70 === false ? '0' : '1', [['1', 'С чистовым G70'], ['0', 'Без G70']])}` : ''}
+      <div class="two-col mt"><button class="action-button secondary" data-act="cntEx">📂 Примеры</button><button class="action-button secondary" data-act="cntNew">🗋 Новый контур</button></div>
+      <div class="muted mt">Перед первой деталью проверьте программу в графике станка или на воздухе. Если дуги на станке идут не в ту сторону — <a class="link-btn" data-act="cntInv">${c.inv ? 'вернуть G2/G3 как было' : 'поменять G2↔G3'}</a>.</div>
+    </div>`;
+}
+
+/* обновление без полной перерисовки (во время перетаскивания и ввода) */
+function cntUpdate() {
+  const r = cntR();
+  const w = document.getElementById('cnt-wrap'); if (w) w.innerHTML = cntSvg(r);
+  const cd = document.getElementById('cnt-code'); if (cd) cd.innerHTML = cntCode(r);
+  const ms = document.getElementById('cnt-msgs'); if (ms) ms.innerHTML = cntMsgs(r);
+  const p = ui.cnt.pts[ui.cnt.sel];
+  if (p) {
+    const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v; };
+    set('cp-x', CNT.fmt(+p.x || 0)); set('cp-z', CNT.fmt(+p.z || 0)); set('cp-ang', cntAngOf(ui.cnt.sel));
+    const ph = document.querySelector('.cn-ph .muted'); if (ph && ph.closest('.ui-card').querySelector('#cp-x')) ph.textContent = `в коде: X${CNT.fmt(ui.cnt.sx * (+p.x || 0))} Z${CNT.fmt(ui.cnt.sz * (+p.z || 0))}`;
+  }
+  cntSave();
+  return r;
+}
+const cntSnapV = v => { const s = ui.cnt.snap || 0.1; return Math.round(Math.round(v / s) * s * 1000) / 1000; };
+
+function cntAttach() {
+  const w = document.getElementById('cnt-wrap');
+  if (!w || w._on) return; w._on = 1;
+  const ptrs = new Map(); let g = null;
+  const pos = e => { const svg = w.querySelector('svg'), rc = svg.getBoundingClientRect(); return { x: (e.clientX - rc.left) * CNT_VW / rc.width, y: (e.clientY - rc.top) * CNT_VH / rc.height }; };
+  const world = q => ({ u: ui.cntView.ou + (q.x - CNT_VW / 2) / ui.cntView.s, v: ui.cntView.ov - (q.y - CNT_VH / 2) / ui.cntView.s });
+  w.addEventListener('pointerdown', e => {
+    try { w.setPointerCapture(e.pointerId); } catch (er) {}
+    const q = pos(e); ptrs.set(e.pointerId, q);
+    if (ptrs.size === 2) {
+      const [a, b] = [...ptrs.values()];
+      g = { mode: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y) || 1, s0: ui.cntView.s, mid: world({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }) };
+    } else {
+      const h = e.target.closest && e.target.closest('[data-pi]');
+      g = h ? { mode: 'pt', i: +h.dataset.pi, q0: q, moved: false } : { mode: 'pan', q0: q, ou: ui.cntView.ou, ov: ui.cntView.ov, moved: false };
+    }
+    e.preventDefault();
+  });
+  w.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId) || !g) return;
+    const q = pos(e); ptrs.set(e.pointerId, q);
+    if (g.mode === 'pinch' && ptrs.size >= 2) {
+      const [a, b] = [...ptrs.values()];
+      const s = Math.min(400, Math.max(2, g.s0 * Math.hypot(a.x - b.x, a.y - b.y) / g.d0));
+      const mq = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      ui.cntView.s = s; ui.cntView.ou = g.mid.u - (mq.x - CNT_VW / 2) / s; ui.cntView.ov = g.mid.v + (mq.y - CNT_VH / 2) / s;
+      w.innerHTML = cntSvg(cntR()); return;
+    }
+    const dx = q.x - g.q0.x, dy = q.y - g.q0.y;
+    if (!g.moved && Math.hypot(dx, dy) < 4) return;
+    if (g.mode === 'pt') {
+      if (!g.moved) { cntPush(); ui.cnt.sel = g.i; }
+      g.moved = true;
+      const wp = world(q), p = ui.cnt.pts[g.i];
+      p.z = cntSnapV(wp.u); p.x = cntSnapV(wp.v * 2);
+      cntUpdate();
+    } else if (g.mode === 'pan') {
+      g.moved = true;
+      ui.cntView.ou = g.ou - dx / ui.cntView.s; ui.cntView.ov = g.ov + dy / ui.cntView.s;
+      w.innerHTML = cntSvg(cntR());
+    }
+  });
+  const end = e => {
+    if (!ptrs.has(e.pointerId)) return;
+    ptrs.delete(e.pointerId);
+    if (!g) return;
+    if (g.mode === 'pinch') { if (!ptrs.size) g = null; return; }
+    const gg = g; g = null;
+    if (gg.mode === 'pt') {
+      if (!gg.moved) { ui.cnt.sel = gg.i; cntSave(); }
+      rerender();                                   // обновить карточку точки
+    }
+  };
+  w.addEventListener('pointerup', end);
+  w.addEventListener('pointercancel', end);
+  w.addEventListener('wheel', e => {
+    e.preventDefault();
+    const q = pos(e), m = world(q), s = Math.min(400, Math.max(2, ui.cntView.s * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    ui.cntView.s = s; ui.cntView.ou = m.u - (q.x - CNT_VW / 2) / s; ui.cntView.ov = m.v + (q.y - CNT_VH / 2) / s;
+    w.innerHTML = cntSvg(cntR());
+  }, { passive: false });
+}
+
+/* ввод чисел в карточках */
+let cntFocusPushed = null;
+document.addEventListener('focusin', e => {
+  const id = e.target && e.target.id || '';
+  if (/^c[ps]-/.test(id) && cntFocusPushed !== e.target) { cntPush(); cntFocusPushed = e.target; }
+});
+document.addEventListener('input', e => {
+  const t = e.target, id = t.id || '';
+  if (!/^c[ps]-/.test(id) || ui.tab !== 'threads' || ui.calc !== 'cnt') return;
+  const c = ui.cnt, p = c.pts[c.sel], v = num(t.value), empty = t.value.trim() === '' || t.value.trim() === '-';
+  if (empty) return;
+  if (id === 'cp-x' && p) p.x = v;
+  else if (id === 'cp-z' && p) p.z = v;
+  else if (id === 'cp-ar' && p) p.seg = Object.assign({ t: 'arc', cvx: true }, p.seg, { r: v });
+  else if (id === 'cp-cv' && p) p.cor = Object.assign({}, p.cor, { v });
+  else if (id === 'cp-ca' && p) p.cor = Object.assign({}, p.cor, { a: v });
+  else if (id === 'cs-rn') c.rn = Math.max(0, v);
+  else if (id === 'cs-f') c.f = v;
+  else if (id.startsWith('cs-')) c.cs[id.slice(3)] = v;
+  else return;
+  cntUpdate();
+});
+
+let cntAnim = null;
+Object.assign(Actions, {
+  calcOpen(d) { ui.calc = d.k; if (d.k === 'thr') ui.thr.step = 'type'; if (d.k === 'cnt') ui.cntView = null; render(); },
+  cntKind(d) { cntPush(); ui.cnt.kind = d.v; cntSave(); rerender(); },
+  cntSp(d) { cntPush(); const c = ui.cnt; c.sp = d.v; if (d.v === 'main') { c.sx = 1; c.sz = 1; } if (d.v === 'sub') { c.sx = -1; c.sz = -1; } cntSave(); rerender(); },
+  cntSx(d) { ui.cnt.sx = +d.v; cntSave(); rerender(); },
+  cntSz(d) { ui.cnt.sz = +d.v; cntSave(); rerender(); },
+  cntFmt(d) { ui.cnt.fmt = d.v; cntSave(); rerender(); },
+  cntCyc(d) { cntPush(); const c = ui.cnt; c.cyc = d.v; if (d.v === 'G72' && (+c.cs.d || 0) < 0.3) c.cs.d = 1; if (d.v === 'G71' && (+c.cs.d || 0) > 0.5) c.cs.d = 0.2;
+    if (!(+c.cs.x0)) c.cs.x0 = Math.max(...c.pts.map(p => +p.x || 0)); cntSave(); rerender(); },
+  cntG70(d) { ui.cnt.cs.g70 = d.v === '1'; cntSave(); rerender(); },
+  cntSnap(d) { ui.cnt.snap = +d.v; cntSave(); rerender(); },
+  cntInv() { ui.cnt.inv = !ui.cnt.inv; cntSave(); rerender(); },
+  cntFit() { cntFit(); rerender(); },
+  cntUndo() { const s = ui.cntHist.pop(); if (s) { ui.cnt = JSON.parse(s); cntSave(); rerender(); } },
+  cntSeg(d) { cntPush(); const p = ui.cnt.pts[ui.cnt.sel]; if (!p) return;
+    if (d.v === 'arc') { const a = ui.cnt.pts[ui.cnt.sel - 1]; const ch = Math.hypot((+p.z || 0) - (+a.z || 0), ((+p.x || 0) - (+a.x || 0)) / 2); p.seg = { t: 'arc', r: +(p.seg && p.seg.r) || Math.max(0.1, Math.ceil(ch * 10) / 10), cvx: true }; }
+    else p.seg = { t: 'line' };
+    cntSave(); rerender(); },
+  cntCvx(d) { const p = ui.cnt.pts[ui.cnt.sel]; if (p && p.seg) { cntPush(); p.seg.cvx = d.v === '1'; cntSave(); rerender(); } },
+  cntCor(d) { cntPush(); const p = ui.cnt.pts[ui.cnt.sel]; if (!p) return;
+    const old = p.cor || {}; p.cor = d.v === 'none' ? { t: 'none' } : { t: d.v, v: +old.v || 0.5, a: +old.a || 30 };
+    cntSave(); rerender(); },
+  cntAngZ() { cntAng(true); },
+  cntAngX() { cntAng(false); },
+  cntAdd() {
+    cntPush(); const c = ui.cnt, i = c.sel, p = c.pts[i], q = c.pts[i + 1];
+    const np = q ? { x: cntSnapV(((+p.x || 0) + (+q.x || 0)) / 2), z: cntSnapV(((+p.z || 0) + (+q.z || 0)) / 2) } : { x: +p.x || 0, z: cntSnapV((+p.z || 0) + 2) };
+    c.pts.splice(i + 1, 0, np); c.sel = i + 1; cntSave(); rerender();
+  },
+  cntDel() { const c = ui.cnt; if (c.pts.length <= 2) return; cntPush(); c.pts.splice(c.sel, 1); c.sel = Math.min(c.sel, c.pts.length - 1); cntSave(); rerender(); },
+  cntHl(d) { const k = d.k === '-1' || d.k === 'undefined' ? null : +d.k; ui.cntHl = ui.cntHl === k ? null : k; cntUpdate(); },
+  cntCopy() { copyText(cntR().lines.join('\n'), document.getElementById('cnt-copy')); },
+  cntNew() { choice('Новый контур', 'Текущий контур будет заменён простым примером. Отменить можно кнопкой «↶ Отмена».', [['Начать заново', 'orange', () => { cntPush(); ui.cnt = CNT_DEF(); ui.cntView = null; cntSave(); rerender(); }], ['Не надо', 'secondary']]); },
+  cntEx() {
+    choice('Примеры', 'Первые два — твои программы O5114 и O5207: расчёт совпадает с ними строка в строку. Поправка в них выключена (R0), как в эталоне.',
+      Object.entries(CNT_EX).map(([k, x]) => [x.name, 'secondary', () => { cntPush(); ui.cnt = Object.assign(CNT_DEF(), x.p(), { sel: 1, snap: ui.cnt.snap }); ui.cntView = null; ui.cntHl = null; cntSave(); rerender(); }]).concat([['Закрыть', '']]));
+  },
+  cntSim() {
+    const r = cntR(); if (!r.path.length) return;
+    cancelAnimationFrame(cntAnim);
+    const tip = r.tip || CNT.P(0, 0), rn = +ui.cnt.rn || 0;
+    const pts = []; r.path.forEach((e, k) => CNT.sample(e, 0.05).forEach(p => pts.push({ p, k })));
+    const L = [0]; for (let i = 1; i < pts.length; i++) L.push(L[i - 1] + CNT.dist(pts[i].p, pts[i - 1].p));
+    const total = L[L.length - 1] || 1, dur = Math.min(8000, Math.max(2500, total * 250)), t0 = performance.now();
+    const step = now => {
+      const g = document.getElementById('cnt-tool'); if (!g) return;
+      const f = Math.min(1, (now - t0) / dur), s = f * total;
+      let i = L.findIndex(x => x >= s); if (i < 1) i = 1;
+      const a = pts[i - 1], b = pts[i], seg = (L[i] - L[i - 1]) || 1, t = Math.max(0, Math.min(1, (s - L[i - 1]) / seg));
+      const p = CNT.P(a.p.u + (b.p.u - a.p.u) * t, a.p.v + (b.p.v - a.p.v) * t);
+      const cx = cX(p.u - tip.u), cy = cY(p.v - tip.v);
+      g.innerHTML = (rn > 0 ? `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${(rn * ui.cntView.s).toFixed(1)}" class="cn-nose"/>` : '') +
+        `<circle cx="${cX(p.u).toFixed(1)}" cy="${cY(p.v).toFixed(1)}" r="4" class="cn-tool"/>`;
+      document.querySelectorAll('#cnt-code .cn-cl').forEach(el => el.classList.toggle('run', el.dataset.k === String(b.k)));
+      if (f < 1) cntAnim = requestAnimationFrame(step);
+      else setTimeout(() => { const g2 = document.getElementById('cnt-tool'); if (g2) g2.innerHTML = ''; document.querySelectorAll('#cnt-code .cn-cl.run').forEach(el => el.classList.remove('run')); }, 900);
+    };
+    cntAnim = requestAnimationFrame(step);
+  }
+});
+function cntAng(toZ) {
+  const c = ui.cnt, i = c.sel, p = c.pts[i], a = c.pts[i - 1], el = document.getElementById('cp-ang');
+  if (!p || !a || !el) return;
+  const ang = num(el.value);
+  if (!(ang > 0 && ang < 90)) { alert('Угол к оси Z — от 0 до 90° (0 — цилиндр, 90 — торец)'); return; }
+  cntPush();
+  const dz = (+p.z || 0) - (+a.z || 0), dr = ((+p.x || 0) - (+a.x || 0)) / 2, t = Math.tan(ang * Math.PI / 180);
+  if (toZ) { if (Math.abs(dr) < 1e-9) { alert('Ø этой точки равен предыдущему — сначала задайте Ø'); return; } p.z = (+a.z || 0) + (dz < 0 ? -1 : 1) * Math.abs(dr) / t; }
+  else { if (Math.abs(dz) < 1e-9) { alert('Z этой точки равен предыдущему — сначала задайте Z'); return; } p.x = (+a.x || 0) + (dr < 0 ? -1 : 1) * 2 * Math.abs(dz) * t; }
+  cntSave(); rerender();
+}
+
+function viewCalcMenu() {
+  return header('Расчёты', 'резьбы и контуры для Fanuc', false) +
+    `<div class="kind-card" data-act="calcOpen" data-k="thr">${BOLT_SVG}<div class="kind-lbl">Резьбы</div><div class="muted" style="margin-top:4px">ГОСТ 16093 · размеры и G76</div></div>
+     <div class="kind-card" data-act="calcOpen" data-k="cnt">${CNT_ICON}<div class="kind-lbl">Контур</div><div class="muted" style="margin-top:4px">фаски, радиусы, конуса · поправка на R пластины · G71/G72</div></div>`;
+}
+const CNT_ICON = `<svg viewBox="0 0 170 90" width="170" height="90"><path d="M8 78 L8 52 L30 52 Q44 52 48 38 L52 30 L104 30 L110 24 L162 24 L162 78" fill="none" stroke="#2B3A4A" stroke-width="4" stroke-linejoin="round"/><line x1="4" y1="80" x2="166" y2="80" stroke="#E28743" stroke-width="2" stroke-dasharray="10 4 2 4"/><circle cx="30" cy="52" r="4" fill="#E28743"/><circle cx="104" cy="30" r="4" fill="#E28743"/><circle cx="110" cy="24" r="4" fill="#E28743"/></svg>`;
+
 const TABS = [
   { k: 'machines', ico: '🏭', t: 'Станки' },
   { k: 'schedule', ico: '📅', t: 'График' },
   { k: 'tol', ico: '📏', t: 'Допуски' },
-  { k: 'threads', ico: '🔩', t: 'Резьбы' }
+  { k: 'threads', ico: '🧮', t: 'Расчёты' }
 ];
 const navHtml = () => ((Sync.enabled && !Sync.ready) || (usersOn() && !myRole())) ? '' : `<nav class="tabbar"><div class="tabbar-in">${TABS.filter(x => can('tab:' + x.k)).map(x =>
   `<div class="tab ${ui.tab === x.k ? 'active' : ''}" data-act="tab" data-t="${x.k}"><span class="ico">${x.ico}</span>${x.t}${x.k === 'schedule' && propsOn() && can('approve') && propPendingAll().length ? `<b class="tab-badge">${propPendingAll().length}</b>` : ''}</div>`).join('')}</div></nav>`;
@@ -1877,7 +2587,7 @@ function tabHtml() {
   if (me && me.name) user = me.name;
   if (!can('tab:' + ui.tab)) { const t = TABS.find(x => can('tab:' + x.k)); ui.tab = t ? t.k : 'machines'; }
   if (ui.usersOpen && can('users')) return viewUsers();
-  if (ui.tab === 'threads') return viewThreads();
+  if (ui.tab === 'threads') return !ui.calc ? viewCalcMenu() : ui.calc === 'cnt' ? viewContour() : viewThreads();
   if (ui.tab === 'schedule') return gateView() || viewSchedule();
   if (ui.tab === 'tol') return viewTol();
   return gateView() || views[ui.view]();
@@ -1885,6 +2595,7 @@ function tabHtml() {
 
 const THR_ORDER = ['type', 'dia', 'pitch', 'class', 'info'];
 function thrBack() {
+  if (ui.calc === 'cnt' || ui.thr.step === 'type') { cancelAnimationFrame(cntAnim); ui.calc = null; return render(); }
   const i = THR_ORDER.indexOf(ui.thr.step);
   ui.thr.step = THR_ORDER[Math.max(0, i - 1)];
   render();
