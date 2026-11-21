@@ -3671,7 +3671,8 @@ async function reqSend(id, remind) {
     await flushNow();
     if (Sync.dirty) throw new Error('запрос ещё не сохранился в базе (нет связи)');
     const res = await callNotify({ action: 'request', req_id: id, remind: !!remind });
-    if (!Array.isArray(res.sent)) throw new Error('в Supabase старая версия функции notify — обновите её код');
+    // старая версия функции не знает про запросы и отвечает как на пустой список изменений графика (с полем skipped)
+    if (!Array.isArray(res.sent) || 'skipped' in res) throw new Error('в Supabase старая версия функции notify — обновите её код (Edge Functions → notify → Code), лучше с компьютера');
     const parts = [];
     if (res.sent.length) parts.push(`✅ Отправлено (${res.sent.length}): ${res.sent.map(esc).join(', ')}`);
     if (res.noLink && res.noLink.length) parts.push(`🔗 Не привязан Telegram: ${res.noLink.map(esc).join(', ')}`);
