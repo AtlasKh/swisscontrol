@@ -82,6 +82,17 @@ body { background: linear-gradient(180deg, #F4F7F9 0%, #EAEFF4 100%); color: #3A
 .cn-ang { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: end; margin-bottom: 8px; } .cn-ang .input-group { margin-bottom: 0; } .cn-ang .mini-btn { height: 42px; }
 .cn-code { background: #13202F; color: #E8F0F8; border-radius: 12px; padding: 8px 0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; max-height: 340px; overflow: auto; }
 .cn-cl { padding: 3px 12px; cursor: pointer; white-space: pre; } .cn-cl.on { background: rgba(255,209,102,.18); color: #FFD166; } .cn-cl.run { background: rgba(226,135,67,.35); }
+.req-item { border: 1px solid #E3E8EE; border-radius: 14px; padding: 10px 12px; margin-bottom: 10px; }
+.req-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.req-need { font-size: 12px; font-weight: 700; color: #B4561B; background: #FDF1E7; border-radius: 8px; padding: 2px 8px; }
+.req-ans { margin-top: 8px; } .req-ans .action-button { padding: 10px; }
+.action-button.ans-yes { background: #2EA043; color: #fff; } .action-button.ans-no { background: #C0392B; color: #fff; }
+.req-me { margin-top: 8px; font-weight: 700; color: #1E5A33; }
+.req-list { margin-top: 8px; border-top: 1px dashed #E3E8EE; padding-top: 6px; }
+.req-list .mini-btn { white-space: nowrap; }
+.req-btns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.roster th.req { background: #FFF1E0; }
+.roster th .req-m { display: block; font-style: normal; font-size: 10px; line-height: 1; }
 .warn-box { background: #FDF1E7; border: 1px solid #F2CDAE; border-radius: 14px; padding: 10px 12px; font-size: 13px; margin-top: 10px; color: #7A4A20; }
 .roster-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; background: #fff; border: 1px solid #DCE3EB; border-radius: 18px; box-shadow: 0 8px 24px rgba(160,180,200,.08); }
 table.roster { border-collapse: separate; border-spacing: 0; font-size: 13px; }
@@ -345,7 +356,7 @@ function seedData() {
 
 /* db.staff = [{id, name}] — сотрудники графика (порядок = порядок в списке)
    db.roster = { 'ГГГГ-ММ-ДД': { idСотрудника: 'd' | 'n' } } — нет записи = выходной */
-function normDb(d) { d = d || {}; d.machines = d.machines || []; d.staff = d.staff || []; d.roster = d.roster || {}; d.att = d.att || {}; d.batches = d.batches || {}; d.users = d.users || {}; d.props = d.props || {}; return d; }
+function normDb(d) { d = d || {}; d.machines = d.machines || []; d.staff = d.staff || []; d.roster = d.roster || {}; d.att = d.att || {}; d.batches = d.batches || {}; d.users = d.users || {}; d.props = d.props || {}; d.reqs = d.reqs || {}; d.reps = d.reps || {}; return d; }
 let db = normDb(Store.load() || seedData());
 /* ===================== ОБЛАКО (Supabase) =====================
    Как это работает: весь остальной код по-прежнему меняет объект db и
@@ -353,13 +364,14 @@ let db = normDb(Store.load() || seedData());
    сервере, и отправляет только изменившиеся строки. Каждые 12 секунд
    (и при возврате в приложение) подтягиваются изменения других людей. */
 const Sync = { enabled: CLOUD, ready: false, busy: false, again: false, dirty: false, queued: false,
-  online: true, error: null, snap: { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {} }, loading: {}, t: null, started: false,
+  online: true, error: null, snap: { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {}, q: {}, y: {} }, loading: {}, t: null, started: false,
   noRoster: false,     // noRoster = в базе ещё нет таблиц графика (не выполнен setup2.sql)
   noAtt: false,        // noAtt = в базе ещё нет таблицы явки (не выполнен setup3.sql)
   noV4: false,         // noV4 = нет архива партий и пользователей (не выполнен setup4.sql)
   noV5: false,         // noV5 = нет таблицы предложений смен (не выполнен setup5.sql)
+  noV7: false,         // noV7 = нет таблиц запросов на смену (не выполнен setup7.sql)
   schema: 0 };         // версия базы из app_meta (6 = выполнен setup6.sql)
-const SYNC_KEYS = ['m', 'e', 'c', 's', 'r', 'a', 'b', 'u', 'p'];
+const SYNC_KEYS = ['m', 'e', 'c', 's', 'r', 'a', 'b', 'u', 'p', 'q', 'y'];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -385,7 +397,11 @@ async function restAll(path) {            // сервер отдаёт макс�
 
 /* db -> строки таблиц */
 function toRows(d) {
-  const rows = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {} };
+  const rows = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {}, q: {}, y: {} };
+  if (!Sync.noV7 && !Sync.noRoster) {
+    for (const q of Object.values(d.reqs || {})) rows.q[q.id] = { id: q.id, day: q.day, shift: q.shift, need: q.need, note: q.note || null, status: q.status, created_by: q.created_by || null, created_tg: q.created_tg || null, created_at: q.created_at };
+    for (const y of Object.values(d.reps || {})) if (d.reqs[y.req_id]) rows.y[y.id] = { id: y.id, req_id: y.req_id, staff_id: y.staff_id, answer: y.answer, at: y.at };
+  }
   if (!Sync.noV5 && !Sync.noRoster) for (const x of Object.values(d.props || {}))
     rows.p[x.id] = { id: x.id, staff_id: x.staff_id, day: x.day, shift: x.shift, status: x.status, created_at: x.created_at, decided_by: x.decided_by || null, decided_at: x.decided_at || null };
   const v4 = !Sync.noV4;                           // архив партий, пользователи и batch_id есть в базе
@@ -417,7 +433,7 @@ function toRows(d) {
   return rows;
 }
 function serialize(rows) {
-  const s = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {} };
+  const s = { m: {}, e: {}, c: {}, s: {}, r: {}, a: {}, b: {}, u: {}, p: {}, q: {}, y: {} };
   for (const k of SYNC_KEYS) for (const id in rows[k]) s[k][id] = JSON.stringify(rows[k][id]);
   return s;
 }
@@ -467,6 +483,12 @@ async function syncPush() {
       const cp = P ? changed('p') : [], dp = P ? removed('p') : [];
       if (cp.length) await up('proposals', cp);
       if (dp.length) await del('proposals', dp);
+      const Q = R && !Sync.noV7;                              // таблицы запросов на смену есть в базе
+      const cq = Q ? changed('q') : [], cy = Q ? changed('y') : [], dy = Q ? removed('y') : [], dq = Q ? removed('q') : [];
+      if (cq.length) await up('shift_requests', cq);
+      if (cy.length) await up('request_replies', cy);
+      if (dy.length) await del('request_replies', dy);
+      if (dq.length) await del('shift_requests', dq);
       const de = removed('e'), dm = removed('m'), dc = removed('c');
       const dr = R ? removed('r') : [], ds = R ? removed('s') : [], da = A ? removed('a') : [];
       if (de.length) await del('shift_entries', de);
@@ -502,7 +524,7 @@ function save() {
 
 /* получение данных с сервера. Возвращает true, если что-то изменилось */
 async function syncPull(first) {
-  const flags0 = [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5, Sync.schema].join();   // смена состояния базы (выполнен SQL) — тоже повод перерисовать
+  const flags0 = [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5, Sync.noV7, Sync.schema].join();   // смена состояния базы (выполнен SQL) — тоже повод перерисовать
   const [ms, es, cs] = await Promise.all([
     restAll('machines?select=id,data&order=id'),
     restAll('shift_entries?select=*&order=id'),
@@ -548,6 +570,16 @@ async function syncPull(first) {
       else throw e;
     }
   } else Sync.noV5 = true;
+  let qs = [], ys = [];
+  if (!Sync.noRoster) {
+    try {                                          // запросы на смену и ответы (появляются после setup7.sql)
+      [qs, ys] = await Promise.all([restAll('shift_requests?select=*&order=id'), restAll('request_replies?select=*&order=id')]);
+      Sync.noV7 = false;
+    } catch (e) {
+      if (/PGRST2|42P01|does not exist|schema cache|^404/.test(e.message)) Sync.noV7 = true;
+      else throw e;
+    }
+  } else Sync.noV7 = true;
   let as = [];
   if (!Sync.noRoster) {
     try {                                          // таблица явки (появляется после setup3.sql)
@@ -571,7 +603,7 @@ async function syncPull(first) {
     return true;
   }
   if (Sync.dirty || Sync.busy || Sync.queued) return false;   // у нас есть неотправленные правки — не затираем
-  const flagsChanged = flags0 !== [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5, Sync.schema].join();
+  const flagsChanged = flags0 !== [Sync.noRoster, Sync.noAtt, Sync.noV4, Sync.noV5, Sync.noV7, Sync.schema].join();
   const old = {};
   db.machines.forEach(m => { old[m.id] = m; });
   const byId = {};
@@ -595,7 +627,12 @@ async function syncPull(first) {
   machines.sort((a, b) => String(a.num).localeCompare(String(b.num), 'ru', { numeric: true }));
   const strip = (k, v) => (k === 'drawing' ? undefined : v);
   const before = JSON.stringify(db, strip);
-  let staff = db.staff, roster = db.roster, att = db.att, batches = db.batches, users = db.users, props = db.props;
+  let staff = db.staff, roster = db.roster, att = db.att, batches = db.batches, users = db.users, props = db.props, reqs = db.reqs, reps = db.reps;
+  if (!Sync.noV7) {
+    reqs = {}; reps = {};
+    for (const q of qs) reqs[q.id] = { id: q.id, day: q.day, shift: q.shift, need: q.need, note: q.note || null, status: q.status, created_by: q.created_by || null, created_tg: q.created_tg == null ? null : +q.created_tg, created_at: q.created_at };
+    for (const y of ys) reps[y.id] = { id: y.id, req_id: y.req_id, staff_id: y.staff_id, answer: y.answer, at: y.at };
+  }
   if (!Sync.noV5) {
     props = {};
     for (const x of ps) props[x.id] = { id: x.id, staff_id: x.staff_id, day: x.day, shift: x.shift, status: x.status, created_at: x.created_at, decided_by: x.decided_by || null, decided_at: x.decided_at || null };
@@ -614,7 +651,7 @@ async function syncPull(first) {
     roster = {};
     for (const r of rs) (roster[r.day] = roster[r.day] || {})[r.staff_id] = r.shift;
   }
-  db = { machines, staff, roster, att, batches, users, props };
+  db = { machines, staff, roster, att, batches, users, props, reqs, reps };
   const after = JSON.stringify(db, strip);
   Sync.snap = serialize(toRows(db));
   Store.save(db);
@@ -681,8 +718,8 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.22';
-const APP_DATE = '13.11.2026';
+const APP_VERSION = '1.23';
+const APP_DATE = '21.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
 
@@ -803,6 +840,7 @@ function modal(title, fields, onSave, onDelete, init, okLabel) {
     const v = f.value == null ? '' : f.value;
     let input;
     if (f.type === 'select') input = `<select name="${f.k}">${f.options.map(o => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}</select>`;
+    else if (f.type === 'date') input = `<input name="${f.k}" type="date" value="${esc(v)}" ${f.min ? `min="${esc(f.min)}"` : ''}>`;
     else if (f.type === 'textarea') input = `<textarea name="${f.k}" rows="${f.rows || 4}">${esc(v)}</textarea>`;
     else {
       const isNum = f.type === 'number', zero = isNum && String(v).trim() !== '' && num(v) === 0;   // 0 не подставляем — показываем подсказкой
@@ -2631,7 +2669,7 @@ const TABS = [
   { k: 'threads', ico: '🧮', t: 'Расчёты' }
 ];
 const navHtml = () => ((Sync.enabled && !Sync.ready) || (usersOn() && !myRole())) ? '' : `<nav class="tabbar"><div class="tabbar-in">${TABS.filter(x => can('tab:' + x.k)).map(x =>
-  `<div class="tab ${ui.tab === x.k ? 'active' : ''}" data-act="tab" data-t="${x.k}"><span class="ico">${x.ico}</span>${x.t}${x.k === 'schedule' && propsOn() && can('approve') && propPendingAll().length ? `<b class="tab-badge">${propPendingAll().length}</b>` : ''}</div>`).join('')}</div></nav>`;
+  `<div class="tab ${ui.tab === x.k ? 'active' : ''}" data-act="tab" data-t="${x.k}"><span class="ico">${x.ico}</span>${x.t}${x.k === 'schedule' && schedBadge() ? `<b class="tab-badge">${schedBadge()}</b>` : ''}</div>`).join('')}</div></nav>`;
 
 function tabHtml() {
   const lg = gateView(); if (lg) return lg;                          // загрузка данных
@@ -2752,8 +2790,9 @@ function viewSchedule() {
   const covCls = c => (c >= norm ? 'cov-ok' : c >= norm - 1 ? 'cov-mid' : 'cov-low');
   let grid = '';
   if (staff.length) {
+    const reqD = {}; if (reqOn()) reqOpen().forEach(q => { reqD[q.day] = (reqD[q.day] || '') + (q.shift === 'd' ? '☀' : '🌙'); });
     const head = `<tr><th class="rs-name">${editing ? 'Тап по имени — шаблон' : 'Сотрудник'}</th>${days.map(x =>
-      `<th class="${x.dow === 0 || x.dow === 6 ? 'we' : ''} ${x.iso === todayIso ? 'today' : ''}"><small>${WD[x.dow]}</small>${x.n}</th>`).join('')}</tr>`;
+      `<th class="${x.dow === 0 || x.dow === 6 ? 'we' : ''} ${x.iso === todayIso ? 'today' : ''} ${reqD[x.iso] ? 'req' : ''}" ${reqD[x.iso] ? `title="Нужны люди: ${reqD[x.iso]}"` : ''}><small>${WD[x.dow]}</small>${x.n}${reqD[x.iso] ? '<i class="req-m">🙋</i>' : ''}</th>`).join('')}</tr>`;
     const body = staff.map(p => {
       const t = staffTotals(p.id, days);
       return `<tr class="${proposing && p.id === meS.id ? 'my-row' : ''}"><td class="rs-name" ${editing ? `data-act="rosterFill" data-sid="${p.id}"` : ''}>${esc(p.name)}<small>☀${t.d} 🌙${t.n} · ${t.all}</small></td>${days.map(x => {
@@ -2776,7 +2815,7 @@ function viewSchedule() {
       <thead>${head}</thead><tbody>${body}${cov('d', '☀️ На день')}${cov('n', '🌙 На ночь')}</tbody></table></div>`;
   }
   const totals = staff.map(p => { const t = staffTotals(p.id, days); return { p, t }; }).sort((a, b) => b.t.all - a.t.all);
-  return header('График смен', monthName, false) + checkinCard() + propCard() +
+  return header('График смен', monthName, false) + checkinCard() + reqCard() + propCard() +
     `<div class="ui-card">
       <div class="cal-head"><button class="mini-btn" data-act="schedMonth" data-dir="-1">←</button><b>${esc(monthName)}</b><button class="mini-btn" data-act="schedMonth" data-dir="1">→</button></div>
       <div class="legend"><span class="lg d">Д</span> день ${hh(DAY_START)}–${hh(NIGHT_START)} <span class="lg n">Н</span> ночь ${hh(NIGHT_START)}–${hh(DAY_START)} <span class="lg">&nbsp;</span> выходной</div>
@@ -3561,6 +3600,130 @@ function propCard() {
   }
   return out;
 }
+
+/* =====================================================================
+   ЗАПРОСЫ НА СМЕНУ («нужны люди»)
+   Наладчик/админ создаёт запрос на дату и смену → бот пишет всем сотрудникам графика
+   с привязанным Telegram (кроме тех, кто уже стоит на эту смену). Каждый отвечает в
+   графике «смогу / не смогу», ответ приходит создателю запроса. Из списка «смогут»
+   человека ставят в график одной кнопкой — ему приходит обычное уведомление об изменении.
+   ===================================================================== */
+const SH_TXT = { d: '☀️ день', n: '🌙 ночь' };
+const reqOn = () => !(Sync.enabled && (Sync.noRoster || Sync.noV7));
+const reqOpen = () => { const t = isoDate(new Date()); return Object.values(db.reqs).filter(q => q.status === 'open' && q.day >= t).sort((a, b) => (a.day + a.shift < b.day + b.shift ? -1 : 1)); };
+const reqRep = (q, sid) => db.reps[q.id + '_' + sid] || null;
+const reqGot = q => db.staff.filter(p => rosterGet(q.day, p.id) === q.shift && (reqRep(q, p.id) || {}).answer === 'yes').length;
+const reqTodo = () => { const me = reqOn() ? myStaff() : null; return me ? reqOpen().filter(q => !reqRep(q, me.id) && rosterGet(q.day, me.id) !== q.shift) : []; };
+const schedBadge = () => (propsOn() && can('approve') ? propPendingAll().length : 0) + reqTodo().length;
+
+function reqCard() {
+  const admin = can('sched');
+  if (Sync.enabled && Sync.noV7 && !Sync.noRoster)
+    return admin || isOwner() ? '<div class="ui-card"><div class="warn-box" style="margin:0">🙋 Чтобы отправлять запросы «нужны люди на смену», выполните один раз <b>setup7.sql</b> в Supabase.</div></div>' : '';
+  if (!reqOn()) return '';
+  const list = reqOpen(), me = myStaff();
+  if (!list.length && !admin) return '';
+  let html = `<div class="ui-card"><div class="section-title">🙋 Нужны люди на смену</div>`;
+  if (!list.length) html += '<div class="muted">Открытых запросов нет. Создайте запрос — бот напишет всем в графике, а они ответят, смогут ли выйти.</div>';
+  list.forEach(q => {
+    const reps = Object.values(db.reps).filter(r => r.req_id === q.id && db.staff.some(p => p.id === r.staff_id));
+    const yes = reps.filter(r => r.answer === 'yes'), no = reps.filter(r => r.answer === 'no'), got = reqGot(q);
+    html += `<div class="req-item"><div class="req-head"><b>${dayTxt(q.day)} · ${SH_TXT[q.shift]}</b><span class="req-need">нужно ${q.need}${got ? ' · поставлено ' + got : ''}</span></div>
+      ${q.note ? `<div class="muted">💬 ${esc(q.note)}</div>` : ''}`;
+    if (me) {
+      const my = reqRep(q, me.id);
+      html += rosterGet(q.day, me.id) === q.shift ? '<div class="req-me">✅ Вы стоите в графике на эту смену</div>'
+        : `<div class="two-col req-ans"><button class="action-button ${my && my.answer === 'yes' ? 'ans-yes' : 'secondary'}" data-act="reqAns" data-id="${q.id}" data-a="yes">✅ Смогу</button>
+           <button class="action-button ${my && my.answer === 'no' ? 'ans-no' : 'secondary'}" data-act="reqAns" data-id="${q.id}" data-a="no">❌ Не смогу</button></div>
+           ${my ? '' : '<div class="muted">Ответьте, пожалуйста — ответ сразу увидит наладчик.</div>'}`;
+    }
+    if (admin) {
+      const silent = db.staff.filter(p => !reqRep(q, p.id) && rosterGet(q.day, p.id) !== q.shift).map(p => esc(p.name));
+      html += `<div class="req-list">${yes.map(r => { const inPl = rosterGet(q.day, r.staff_id) === q.shift;
+          return `<div class="shift-row"><span>✅ ${esc(staffName(r.staff_id))}<div class="muted">сейчас в графике: ${planTxt(q.day, r.staff_id)}</div></span>${inPl ? '<span class="att-tag">в графике</span>' : `<button class="mini-btn ok" data-act="reqPut" data-id="${q.id}" data-sid="${r.staff_id}">+ в график</button>`}</div>`; }).join('')}
+        ${no.length ? `<div class="muted">❌ Не смогут: ${no.map(r => esc(staffName(r.staff_id))).join(', ')}</div>` : ''}
+        <div class="muted">⏳ Не ответили: ${silent.length ? silent.join(', ') : '—'}</div></div>
+        <div class="req-btns"><button class="mini-btn" data-act="reqRemind" data-id="${q.id}" ${silent.length ? '' : 'disabled'}>🔔 Напомнить</button><button class="mini-btn" data-act="reqClose" data-id="${q.id}">✓ Закрыть</button><button class="mini-btn danger" data-act="reqDel" data-id="${q.id}">✕</button></div>`;
+    }
+    html += '</div>';
+  });
+  if (admin) html += `<button class="action-button mt" data-act="reqNew">🙋 Запросить людей на смену</button>${ui.sched.reqMsg ? `<div class="notify-box ${ui.sched.reqMsg.cls || ''}">${ui.sched.reqMsg.html}</div>` : ''}`;
+  else if (!me && list.length) html += `<div class="muted mt">Чтобы ответить, один раз выберите себя в списке сотрудников графика.</div>${attOn() ? '<button class="action-button mt" data-act="attLink">Это я — выбрать себя</button>' : ''}`;
+  return html + '</div>';
+}
+
+async function callNotify(payload) {
+  const r = await fetch(SUPABASE_URL.replace(/\/+$/, '') + '/functions/v1/' + NOTIFY_FN, {
+    method: 'POST', headers: { apikey: SUPABASE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ initData: tg && tg.initData }, payload))
+  });
+  const res = await r.json().catch(() => ({}));
+  if (r.status === 404 && !res.error) throw new Error('функция уведомлений не установлена в Supabase');
+  if (!r.ok || res.error) throw new Error(res.error || ('ошибка ' + r.status));
+  return res;
+}
+function reqMsg(html, cls) { ui.sched.reqMsg = { html, cls }; if (ui.tab === 'schedule') rerender(); }
+async function reqSend(id, remind) {
+  if (!Sync.enabled) return;
+  if (!(tg && tg.initData)) return reqMsg('🙋 Запрос сохранён. Сообщения рассылаются только из Telegram.', 'warn');
+  reqMsg(remind ? '🔔 Отправляю напоминание…' : '🙋 Отправляю запрос всем в графике…');
+  try {
+    await flushNow();
+    if (Sync.dirty) throw new Error('запрос ещё не сохранился в базе (нет связи)');
+    const res = await callNotify({ action: 'request', req_id: id, remind: !!remind });
+    if (!Array.isArray(res.sent)) throw new Error('в Supabase старая версия функции notify — обновите её код');
+    const parts = [];
+    if (res.sent.length) parts.push(`✅ Отправлено (${res.sent.length}): ${res.sent.map(esc).join(', ')}`);
+    if (res.noLink && res.noLink.length) parts.push(`🔗 Не привязан Telegram: ${res.noLink.map(esc).join(', ')}`);
+    if (res.failed && res.failed.length) parts.push(`⚠️ Не доставлено: ${res.failed.map(f => esc(f.name) + ' — ' + esc(f.reason)).join('; ')}`);
+    reqMsg((remind ? '🔔 ' : '🙋 ') + (parts.join('<br>') || 'Отправлять некому'), res.failed && res.failed.length ? 'warn' : 'ok');
+  } catch (e) { reqMsg('🙋 Сообщения не отправлены: ' + esc(e.message || String(e)), 'warn'); }
+}
+
+Object.assign(Actions, {
+  reqNew() {
+    const tm = new Date(); tm.setDate(tm.getDate() + 1);
+    modal('Нужны люди на смену', [
+      { k: 'day', label: 'Дата', type: 'date', value: isoDate(tm), min: isoDate(new Date()) },
+      { k: 'shift', label: 'Смена', type: 'select', options: ['☀️ День 06:00–18:00', '🌙 Ночь 18:00–06:00'], value: '☀️ День 06:00–18:00' },
+      { k: 'need', label: 'Сколько человек нужно', type: 'number', value: 1 },
+      { k: 'note', label: 'Комментарий (необязательно)', ph: 'например: срочный заказ на станок №3' }
+    ], o => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(o.day) || o.day < isoDate(new Date())) { alert('Выберите дату — сегодня или позже'); return false; }
+      const need = Math.round(num(o.need) || 1);
+      if (need < 1 || need > 50) { alert('Сколько человек — от 1 до 50'); return false; }
+      const id = 'q' + Date.now().toString(36) + uid();
+      db.reqs[id] = { id, day: o.day, shift: o.shift.startsWith('🌙') ? 'n' : 'd', need, note: (o.note || '').slice(0, 200) || null, status: 'open',
+        created_by: user, created_tg: tgId(), created_at: new Date().toISOString() };
+      save(); rerender(); reqSend(id, false);
+    }, null, null, 'Отправить всем');
+  },
+  reqAns(d) {
+    const q = db.reqs[d.id], me = myStaff();
+    if (!q || !me || (d.a !== 'yes' && d.a !== 'no')) return;
+    const id = q.id + '_' + me.id, old = db.reps[id];
+    if (old && old.answer === d.a) return;
+    db.reps[id] = { id, req_id: q.id, staff_id: me.id, answer: d.a, at: new Date().toISOString() };
+    save(); rerender();
+    if (Sync.enabled && tg && tg.initData) (async () => { try { await flushNow(); if (!Sync.dirty) await callNotify({ action: 'reply', req_id: q.id }); } catch (e) {} })();
+  },
+  reqPut(d) {
+    const q = db.reqs[d.id]; if (!q || !db.staff.some(p => p.id === d.sid)) return;
+    const base = JSON.parse(JSON.stringify(db.roster));
+    rosterSet(q.day, d.sid, q.shift);
+    if (propsOn()) propSyncCell(q.day, d.sid);
+    if (reqGot(q) >= q.need) q.status = 'closed';
+    save(); rerender(); schedNotify(base);
+  },
+  reqClose(d) { const q = db.reqs[d.id]; if (q) { q.status = 'closed'; save(); rerender(); } },
+  reqDel(d) {
+    const q = db.reqs[d.id]; if (!q || !confirm('Удалить запрос вместе с ответами?')) return;
+    Object.keys(db.reps).forEach(k => { if (db.reps[k].req_id === q.id) delete db.reps[k]; });
+    delete db.reqs[q.id]; save(); rerender();
+  },
+  reqRemind(d) { if (db.reqs[d.id]) reqSend(d.id, true); }
+});
+needPerm('sched', ['reqNew', 'reqPut', 'reqClose', 'reqDel', 'reqRemind']);
 
 function viewProps() {
   const pend = propPendingAll(), groups = {};

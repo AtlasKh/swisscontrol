@@ -1,5 +1,5 @@
 // ============================================================
-// SwissControl: уведомления об изменениях в графике + файлы программ в Telegram (версия 1.22)
+// SwissControl: уведомления о графике, запросы на смену, файлы программ в Telegram (версия 1.23)
 // Supabase → Edge Functions → Deploy a new function → Via Editor.
 // Имя функции: notify. Вставьте ВЕСЬ этот текст вместо примера и нажмите Deploy.
 // Нужен секрет TELEGRAM_BOT_TOKEN (Edge Functions → Secrets).
@@ -75,7 +75,7 @@ export function buildMessage(list: { day: string; from: string; to: string }[]) 
   return '📅 <b>Изменения в вашем графике</b>\n\n' + rows.join('\n') + '\n\nВесь график — в приложении SwissControl.';
 }
 
-async function tgSend(token: string, chatId: number, text: string, appUrl: string) {
+async function tgSend(token: string, chatId: number, text: string, appUrl: string, btn = '📅 Открыть график') {
   const call = async (markup: unknown) => {
     const r = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -83,9 +83,63 @@ async function tgSend(token: string, chatId: number, text: string, appUrl: strin
     });
     return await r.json().catch(() => ({ ok: false, description: 'HTTP ' + r.status }));
   };
-  let res = appUrl ? await call({ inline_keyboard: [[{ text: '📅 Открыть график', web_app: { url: appUrl } }]] }) : await call(null);
+  let res = appUrl ? await call({ inline_keyboard: [[{ text: btn, web_app: { url: appUrl } }]] }) : await call(null);
   if (!res.ok && appUrl && /button|web_app|BUTTON/i.test(res.description || '')) res = await call(null);   // кнопка не прошла — шлём без неё
   return res;
+}
+
+// ---------- запрос «нужны люди на смену» ----------
+const REQ_ID = /^[A-Za-z0-9_-]{1,40}$/;
+const esc = (t: string) => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+async function canEdit(user: { id: number }) {
+  if (Number(user.id) === OWNER_ID) return true;
+  const u = await db('users?select=role&id=eq.' + encodeURIComponent(String(user.id)));
+  return !!u.length && EDIT_ROLES.includes(u[0].role);
+}
+// рассылка всем привязанным сотрудникам (remind — только тем, кто ещё не ответил)
+async function sendRequest(user: { id: number }, body: any, token: string): Promise<Response> {
+  if (!(await canEdit(user))) return json({ error: 'нет прав на изменение графика' }, 403);
+  const id = String(body.req_id || '');
+  if (!REQ_ID.test(id)) return json({ error: 'неверный запрос' }, 400);
+  const rq = (await db('shift_requests?select=*&id=eq.' + id))[0];
+  if (!rq) return json({ error: 'запрос не найден в базе — подождите пару секунд и повторите' }, 404);
+  if (rq.status !== 'open') return json({ error: 'запрос уже закрыт' }, 400);
+  const staff = await db('staff?select=id,name,tg_id&order=sort');
+  const roster = await db('roster?select=staff_id,shift&day=eq.' + rq.day);
+  const busy = new Set(roster.filter((r: any) => r.shift === rq.shift).map((r: any) => r.staff_id));   // уже стоят на эту смену
+  let answered = new Set<string>();
+  if (body.remind) answered = new Set((await db('request_replies?select=staff_id&req_id=eq.' + id)).map((r: any) => r.staff_id));
+  const text = '🙋 <b>' + (body.remind ? 'Напоминание: нужны люди на смену' : 'Нужны люди на смену') + '</b>\n\n• ' + dayText(rq.day) + ' — ' + shiftText(rq.shift, true) +
+    '\nНужно: <b>' + rq.need + ' чел.</b>' + (rq.note ? '\n💬 ' + esc(rq.note) : '') +
+    '\n\nОткройте график и отметьте: ✅ смогу или ❌ не смогу.';
+  const appUrl = env('APP_URL') || APP_URL_DEFAULT;
+  const sent: string[] = [], noLink: string[] = [], failed: { name: string; reason: string }[] = [];
+  for (const s of staff) {
+    if (busy.has(s.id) || answered.has(s.id)) continue;
+    if (s.tg_id == null) { noLink.push(s.name); continue; }
+    const res = await tgSend(token, Number(s.tg_id), text, appUrl, '🙋 Ответить');
+    if (res.ok) sent.push(s.name);
+    else failed.push({ name: s.name, reason: /blocked|chat not found|initiate/i.test(res.description || '') ? 'не запускал бота или заблокировал его' : String(res.description || 'ошибка') });
+  }
+  return json({ sent, noLink, failed });
+}
+// сотрудник ответил — сообщаем тому, кто создал запрос
+async function sendReply(user: { id: number }, body: any, token: string): Promise<Response> {
+  const id = String(body.req_id || '');
+  if (!REQ_ID.test(id)) return json({ error: 'неверный запрос' }, 400);
+  const me = (await db('staff?select=id,name&tg_id=eq.' + Number(user.id)))[0];
+  if (!me) return json({ error: 'вы не привязаны к графику' }, 403);
+  const rq = (await db('shift_requests?select=*&id=eq.' + id))[0];
+  if (!rq) return json({ error: 'запрос не найден' }, 404);
+  const reps = await db('request_replies?select=staff_id,answer&req_id=eq.' + id);
+  const mine = reps.find((r: any) => r.staff_id === me.id);
+  if (!mine) return json({ error: 'ответ ещё не сохранён в базе' }, 409);
+  if (!rq.created_tg || Number(rq.created_tg) === Number(user.id)) return json({ ok: true, skipped: true });
+  const yes = reps.filter((r: any) => r.answer === 'yes').length, no = reps.length - yes;
+  const text = (mine.answer === 'yes' ? '✅ ' : '❌ ') + '<b>' + esc(me.name) + '</b> — ' + (mine.answer === 'yes' ? 'сможет выйти' : 'не сможет') +
+    '\n• ' + dayText(rq.day) + ' — ' + shiftText(rq.shift, true) + '\n\nОтветили: ✅ ' + yes + ' · ❌ ' + no + ' (нужно ' + rq.need + ')';
+  const res = await tgSend(token, Number(rq.created_tg), text, env('APP_URL') || APP_URL_DEFAULT, '📅 Открыть график');
+  return json({ ok: !!res.ok });
 }
 
 // ---------- файл программы: бот присылает его самому человеку (для флешки) ----------
@@ -125,6 +179,8 @@ export async function handler(req: Request): Promise<Response> {
 
   try {
     if (body.action === 'file') return await sendFile(user, body, token);
+    if (body.action === 'request') return await sendRequest(user, body, token);
+    if (body.action === 'reply') return await sendReply(user, body, token);
     if (Number(user.id) !== OWNER_ID) {
       const u = await db('users?select=role&id=eq.' + encodeURIComponent(String(user.id)));
       if (!u.length || !EDIT_ROLES.includes(u[0].role)) return json({ error: 'нет прав на изменение графика' }, 403);
