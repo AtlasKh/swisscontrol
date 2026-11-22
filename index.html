@@ -3683,7 +3683,7 @@ function reqItemMany(g, qs, me, admin) {
       const yes = reps.filter(r => r.answer === 'yes'), no = reps.filter(r => r.answer === 'no').length;
       const silent = db.staff.filter(p => !reqRep(q, p.id) && rosterGet(q.day, p.id) !== q.shift).length;
       silentAll += silent;
-      return `<div class="rq-day"><div class="rq-dh"><b>${dShort(q.day)}${sh.length > 1 ? ' ' + SH_TXT[q.shift] : ''}</b><span class="muted">поставлено ${reqGot(q)}/${q.need} · ❌ ${no} · ⏳ ${silent}</span></div>
+      return `<div class="rq-day"><div class="rq-dh"><b>${dShort(q.day)}${sh.length > 1 ? ' ' + SH_TXT[q.shift] : ''}</b><span class="muted">поставлено ${reqGot(q)}/${q.need} · не смогут ${no} · ещё не ответили ${silent}</span></div>
         <div class="rq-chips">${yes.length ? yes.map(r => rosterGet(q.day, r.staff_id) === q.shift ? `<span class="rq-chip in">✓ ${esc(staffName(r.staff_id))}</span>`
           : `<button class="rq-chip" data-act="reqPut" data-id="${q.id}" data-sid="${r.staff_id}">${esc(staffName(r.staff_id))} <b>+ в график</b></button>`).join('') : '<span class="muted">пока никто не может</span>'}</div></div>`;
     }).join('') + `</div><div class="req-btns"><button class="mini-btn" data-act="reqRemind" data-g="${g}" ${silentAll ? '' : 'disabled'}>🔔 Напомнить</button><button class="mini-btn" data-act="reqClose" data-g="${g}">✓ Закрыть все дни</button><button class="mini-btn danger" data-act="reqDel" data-g="${g}">✕</button></div>`;
