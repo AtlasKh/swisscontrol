@@ -90,6 +90,16 @@ body { background: linear-gradient(180deg, #F4F7F9 0%, #EAEFF4 100%); color: #3A
 .req-me { margin-top: 8px; font-weight: 700; color: #1E5A33; }
 .req-list { margin-top: 8px; border-top: 1px dashed #E3E8EE; padding-top: 6px; }
 .req-list .mini-btn { white-space: nowrap; }
+.req-days { margin-top: 6px; }
+.rd { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid #F0F3F6; }
+.rd-d { font-weight: 700; min-width: 62px; }
+.rd-b { flex: 1; border: 1px solid #DCE3EA; background: #F6F8FA; border-radius: 10px; padding: 8px 4px; font-size: 13px; font-weight: 700; color: #4A5660; }
+.rd-b.y { background: #2EA043; border-color: #2EA043; color: #fff; } .rd-b.n { background: #C0392B; border-color: #C0392B; color: #fff; }
+.rq-day { padding: 6px 0; border-bottom: 1px solid #F0F3F6; }
+.rq-dh { display: flex; justify-content: space-between; gap: 6px; flex-wrap: wrap; align-items: baseline; }
+.rq-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.rq-chip { border: 1px solid #BFE3CB; background: #EAF6EE; color: #1E5A33; border-radius: 9px; padding: 4px 8px; font-size: 13px; font-weight: 600; }
+.rq-chip b { color: #2EA043; } .rq-chip.in { background: #EEF2F6; border-color: #DCE3EA; color: #4A5660; }
 .req-btns { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .roster th.req { background: #FFF1E0; }
 .roster th .req-m { display: block; font-style: normal; font-size: 10px; line-height: 1; }
@@ -718,8 +728,8 @@ function gateView() {
 }
 /* Версия приложения. При КАЖДОМ обновлении файла меняйте номер и дату здесь:
    по ним видно, что у сотрудника открылась новая версия. */
-const APP_VERSION = '1.23';
-const APP_DATE = '21.11.2026';
+const APP_VERSION = '1.24';
+const APP_DATE = '22.11.2026';
 const footerHtml = () => `<div class="app-version">SwissControl · v${APP_VERSION} · ${APP_DATE}</div>`;
 const viewHtml = () => updBanner() + tabHtml() + footerHtml() + navHtml();
 
@@ -3614,7 +3624,72 @@ const reqOpen = () => { const t = isoDate(new Date()); return Object.values(db.r
 const reqRep = (q, sid) => db.reps[q.id + '_' + sid] || null;
 const reqGot = q => db.staff.filter(p => rosterGet(q.day, p.id) === q.shift && (reqRep(q, p.id) || {}).answer === 'yes').length;
 const reqTodo = () => { const me = reqOn() ? myStaff() : null; return me ? reqOpen().filter(q => !reqRep(q, me.id) && rosterGet(q.day, me.id) !== q.shift) : []; };
-const schedBadge = () => (propsOn() && can('approve') ? propPendingAll().length : 0) + reqTodo().length;
+// запрос пачкой дней: у всех дней общий префикс id до «-» (одна рассылка, ответы по каждому дню)
+const reqG = q => String(q.id).split('-')[0];
+function reqGroups() {
+  const m = new Map();
+  reqOpen().forEach(q => { const g = reqG(q); if (!m.has(g)) m.set(g, []); m.get(g).push(q); });
+  return [...m.entries()].map(([g, list]) => ({ g, list: list.sort((a, b) => (a.day < b.day ? -1 : 1)) }));
+}
+const reqGroupAll = g => Object.values(db.reqs).filter(q => reqG(q) === g);
+const schedBadge = () => (propsOn() && can('approve') ? propPendingAll().length : 0) + new Set(reqTodo().map(reqG)).size;
+const MON_G = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function dateRangeTxt(a, b) {
+  const [, ma, da] = a.split('-').map(Number), [, mb, db_] = b.split('-').map(Number);
+  return ma === mb ? `${da}–${db_} ${MON_G[mb - 1]}` : `${da} ${MON_G[ma - 1]} – ${db_} ${MON_G[mb - 1]}`;
+}
+const smenN = n => n + ' ' + (n % 10 === 1 && n % 100 !== 11 ? 'смена' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'смены' : 'смен');
+const dShort = iso => { const x = new Date(iso + 'T12:00:00'); return `${WD[x.getDay()]} ${x.getDate()}`; };
+
+function reqItemOne(q, me, admin) {
+  const reps = Object.values(db.reps).filter(r => r.req_id === q.id && db.staff.some(p => p.id === r.staff_id));
+  const yes = reps.filter(r => r.answer === 'yes'), no = reps.filter(r => r.answer === 'no'), got = reqGot(q);
+  let html = `<div class="req-item"><div class="req-head"><b>${dayTxt(q.day)} · ${SH_TXT[q.shift]}</b><span class="req-need">нужно ${q.need}${got ? ' · поставлено ' + got : ''}</span></div>
+    ${q.note ? `<div class="muted">💬 ${esc(q.note)}</div>` : ''}`;
+  if (me) {
+    const my = reqRep(q, me.id);
+    html += rosterGet(q.day, me.id) === q.shift ? '<div class="req-me">✅ Вы стоите в графике на эту смену</div>'
+      : `<div class="two-col req-ans"><button class="action-button ${my && my.answer === 'yes' ? 'ans-yes' : 'secondary'}" data-act="reqAns" data-id="${q.id}" data-a="yes">✅ Смогу</button>
+         <button class="action-button ${my && my.answer === 'no' ? 'ans-no' : 'secondary'}" data-act="reqAns" data-id="${q.id}" data-a="no">❌ Не смогу</button></div>
+         ${my ? '' : '<div class="muted">Ответьте, пожалуйста — ответ сразу увидит наладчик.</div>'}`;
+  }
+  if (admin) {
+    const silent = db.staff.filter(p => !reqRep(q, p.id) && rosterGet(q.day, p.id) !== q.shift).map(p => esc(p.name));
+    html += `<div class="req-list">${yes.map(r => { const inPl = rosterGet(q.day, r.staff_id) === q.shift;
+        return `<div class="shift-row"><span>✅ ${esc(staffName(r.staff_id))}<div class="muted">сейчас в графике: ${planTxt(q.day, r.staff_id)}</div></span>${inPl ? '<span class="att-tag">в графике</span>' : `<button class="mini-btn ok" data-act="reqPut" data-id="${q.id}" data-sid="${r.staff_id}">+ в график</button>`}</div>`; }).join('')}
+      ${no.length ? `<div class="muted">❌ Не смогут: ${no.map(r => esc(staffName(r.staff_id))).join(', ')}</div>` : ''}
+      <div class="muted">⏳ Не ответили: ${silent.length ? silent.join(', ') : '—'}</div></div>
+      <div class="req-btns"><button class="mini-btn" data-act="reqRemind" data-g="${reqG(q)}" ${silent.length ? '' : 'disabled'}>🔔 Напомнить</button><button class="mini-btn" data-act="reqClose" data-g="${reqG(q)}">✓ Закрыть</button><button class="mini-btn danger" data-act="reqDel" data-g="${reqG(q)}">✕</button></div>`;
+  }
+  return html + '</div>';
+}
+// запрос на несколько дней: по строке на день
+function reqItemMany(g, qs, me, admin) {
+  const sh = [...new Set(qs.map(q => q.shift))], need = qs[0].need, note = (qs.find(q => q.note) || {}).note;
+  let html = `<div class="req-item"><div class="req-head"><b>${sh.length === 1 ? SH_TXT[sh[0]] : 'Смены'} · ${dateRangeTxt(qs[0].day, qs[qs.length - 1].day)}</b><span class="req-need">${smenN(qs.length)} · нужно ${need} на смену</span></div>
+    ${note ? `<div class="muted">💬 ${esc(note)}</div>` : ''}`;
+  if (me) {
+    const free = qs.filter(q => rosterGet(q.day, me.id) !== q.shift), todo = free.filter(q => !reqRep(q, me.id)).length;
+    html += `<div class="muted" style="margin-top:6px">${todo ? `Отметьте дни, когда сможете выйти (без ответа: ${todo}).` : 'Спасибо, ответ виден наладчику. Можно изменить в любой момент.'}</div><div class="req-days">` + qs.map(q => {
+      const my = reqRep(q, me.id), inPl = rosterGet(q.day, me.id) === q.shift;
+      return `<div class="rd"><span class="rd-d">${dShort(q.day)}${sh.length > 1 ? ' ' + SH_TXT[q.shift].slice(0, 2) : ''}</span>${inPl ? '<span class="att-tag">в графике</span>'
+        : `<button class="rd-b ${my && my.answer === 'yes' ? 'y' : ''}" data-act="reqAns" data-id="${q.id}" data-a="yes">✅ смогу</button><button class="rd-b ${my && my.answer === 'no' ? 'n' : ''}" data-act="reqAns" data-id="${q.id}" data-a="no">❌ нет</button>`}</div>`;
+    }).join('') + `</div>${free.length ? `<div class="two-col req-ans"><button class="action-button secondary" data-act="reqAnsAll" data-g="${g}" data-a="yes">✅ Могу все дни</button><button class="action-button secondary" data-act="reqAnsAll" data-g="${g}" data-a="no">❌ Ни одного</button></div>` : ''}`;
+  }
+  if (admin) {
+    let silentAll = 0;
+    html += '<div class="req-list">' + qs.map(q => {
+      const reps = Object.values(db.reps).filter(r => r.req_id === q.id && db.staff.some(p => p.id === r.staff_id));
+      const yes = reps.filter(r => r.answer === 'yes'), no = reps.filter(r => r.answer === 'no').length;
+      const silent = db.staff.filter(p => !reqRep(q, p.id) && rosterGet(q.day, p.id) !== q.shift).length;
+      silentAll += silent;
+      return `<div class="rq-day"><div class="rq-dh"><b>${dShort(q.day)}${sh.length > 1 ? ' ' + SH_TXT[q.shift] : ''}</b><span class="muted">поставлено ${reqGot(q)}/${q.need} · ❌ ${no} · ⏳ ${silent}</span></div>
+        <div class="rq-chips">${yes.length ? yes.map(r => rosterGet(q.day, r.staff_id) === q.shift ? `<span class="rq-chip in">✓ ${esc(staffName(r.staff_id))}</span>`
+          : `<button class="rq-chip" data-act="reqPut" data-id="${q.id}" data-sid="${r.staff_id}">${esc(staffName(r.staff_id))} <b>+ в график</b></button>`).join('') : '<span class="muted">пока никто не может</span>'}</div></div>`;
+    }).join('') + `</div><div class="req-btns"><button class="mini-btn" data-act="reqRemind" data-g="${g}" ${silentAll ? '' : 'disabled'}>🔔 Напомнить</button><button class="mini-btn" data-act="reqClose" data-g="${g}">✓ Закрыть все дни</button><button class="mini-btn danger" data-act="reqDel" data-g="${g}">✕</button></div>`;
+  }
+  return html + '</div>';
+}
 
 function reqCard() {
   const admin = can('sched');
@@ -3625,27 +3700,9 @@ function reqCard() {
   if (!list.length && !admin) return '';
   let html = `<div class="ui-card"><div class="section-title">🙋 Нужны люди на смену</div>`;
   if (!list.length) html += '<div class="muted">Открытых запросов нет. Создайте запрос — бот напишет всем в графике, а они ответят, смогут ли выйти.</div>';
-  list.forEach(q => {
-    const reps = Object.values(db.reps).filter(r => r.req_id === q.id && db.staff.some(p => p.id === r.staff_id));
-    const yes = reps.filter(r => r.answer === 'yes'), no = reps.filter(r => r.answer === 'no'), got = reqGot(q);
-    html += `<div class="req-item"><div class="req-head"><b>${dayTxt(q.day)} · ${SH_TXT[q.shift]}</b><span class="req-need">нужно ${q.need}${got ? ' · поставлено ' + got : ''}</span></div>
-      ${q.note ? `<div class="muted">💬 ${esc(q.note)}</div>` : ''}`;
-    if (me) {
-      const my = reqRep(q, me.id);
-      html += rosterGet(q.day, me.id) === q.shift ? '<div class="req-me">✅ Вы стоите в графике на эту смену</div>'
-        : `<div class="two-col req-ans"><button class="action-button ${my && my.answer === 'yes' ? 'ans-yes' : 'secondary'}" data-act="reqAns" data-id="${q.id}" data-a="yes">✅ Смогу</button>
-           <button class="action-button ${my && my.answer === 'no' ? 'ans-no' : 'secondary'}" data-act="reqAns" data-id="${q.id}" data-a="no">❌ Не смогу</button></div>
-           ${my ? '' : '<div class="muted">Ответьте, пожалуйста — ответ сразу увидит наладчик.</div>'}`;
-    }
-    if (admin) {
-      const silent = db.staff.filter(p => !reqRep(q, p.id) && rosterGet(q.day, p.id) !== q.shift).map(p => esc(p.name));
-      html += `<div class="req-list">${yes.map(r => { const inPl = rosterGet(q.day, r.staff_id) === q.shift;
-          return `<div class="shift-row"><span>✅ ${esc(staffName(r.staff_id))}<div class="muted">сейчас в графике: ${planTxt(q.day, r.staff_id)}</div></span>${inPl ? '<span class="att-tag">в графике</span>' : `<button class="mini-btn ok" data-act="reqPut" data-id="${q.id}" data-sid="${r.staff_id}">+ в график</button>`}</div>`; }).join('')}
-        ${no.length ? `<div class="muted">❌ Не смогут: ${no.map(r => esc(staffName(r.staff_id))).join(', ')}</div>` : ''}
-        <div class="muted">⏳ Не ответили: ${silent.length ? silent.join(', ') : '—'}</div></div>
-        <div class="req-btns"><button class="mini-btn" data-act="reqRemind" data-id="${q.id}" ${silent.length ? '' : 'disabled'}>🔔 Напомнить</button><button class="mini-btn" data-act="reqClose" data-id="${q.id}">✓ Закрыть</button><button class="mini-btn danger" data-act="reqDel" data-id="${q.id}">✕</button></div>`;
-    }
-    html += '</div>';
+  reqGroups().forEach(({ g, list: qs }) => {
+    if (qs.length === 1) { html += reqItemOne(qs[0], me, admin); return; }
+    html += reqItemMany(g, qs, me, admin);
   });
   if (admin) html += `<button class="action-button mt" data-act="reqNew">🙋 Запросить людей на смену</button>${ui.sched.reqMsg ? `<div class="notify-box ${ui.sched.reqMsg.cls || ''}">${ui.sched.reqMsg.html}</div>` : ''}`;
   else if (!me && list.length) html += `<div class="muted mt">Чтобы ответить, один раз выберите себя в списке сотрудников графика.</div>${attOn() ? '<button class="action-button mt" data-act="attLink">Это я — выбрать себя</button>' : ''}`;
@@ -3663,14 +3720,14 @@ async function callNotify(payload) {
   return res;
 }
 function reqMsg(html, cls) { ui.sched.reqMsg = { html, cls }; if (ui.tab === 'schedule') rerender(); }
-async function reqSend(id, remind) {
+async function reqSend(ids, remind) {
   if (!Sync.enabled) return;
   if (!(tg && tg.initData)) return reqMsg('🙋 Запрос сохранён. Сообщения рассылаются только из Telegram.', 'warn');
   reqMsg(remind ? '🔔 Отправляю напоминание…' : '🙋 Отправляю запрос всем в графике…');
   try {
     await flushNow();
     if (Sync.dirty) throw new Error('запрос ещё не сохранился в базе (нет связи)');
-    const res = await callNotify({ action: 'request', req_id: id, remind: !!remind });
+    const res = await callNotify({ action: 'request', req_ids: ids, req_id: ids[0], remind: !!remind });
     // старая версия функции не знает про запросы и отвечает как на пустой список изменений графика (с полем skipped)
     if (!Array.isArray(res.sent) || 'skipped' in res) throw new Error('в Supabase старая версия функции notify — обновите её код (Edge Functions → notify → Code), лучше с компьютера');
     const parts = [];
@@ -3681,22 +3738,44 @@ async function reqSend(id, remind) {
   } catch (e) { reqMsg('🙋 Сообщения не отправлены: ' + esc(e.message || String(e)), 'warn'); }
 }
 
+const reqReplyT = {};
+function reqReplyLater(g, delay) {
+  if (!Sync.enabled || !(tg && tg.initData)) return;
+  clearTimeout((reqReplyT[g] || {}).t);
+  const fire = async () => {
+    delete reqReplyT[g];
+    try { await flushNow(); if (Sync.dirty) return; const ids = reqGroupAll(g).map(q => q.id); if (ids.length) await callNotify({ action: 'reply', req_ids: ids, req_id: ids[0] }); } catch (e) {}
+  };
+  reqReplyT[g] = { t: setTimeout(fire, delay), fire };
+}
+// приложение сворачивают — отправляем отложенные ответы сразу
+document.addEventListener('visibilitychange', () => { if (document.hidden) Object.values(reqReplyT).forEach(x => { clearTimeout(x.t); x.fire(); }); });
+
 Object.assign(Actions, {
   reqNew() {
     const tm = new Date(); tm.setDate(tm.getDate() + 1);
     modal('Нужны люди на смену', [
-      { k: 'day', label: 'Дата', type: 'date', value: isoDate(tm), min: isoDate(new Date()) },
+      { k: 'day', label: 'С какого дня', type: 'date', value: isoDate(tm), min: isoDate(new Date()) },
+      { k: 'day2', label: 'По какой день (для одного дня — та же дата)', type: 'date', value: isoDate(tm), min: isoDate(new Date()) },
       { k: 'shift', label: 'Смена', type: 'select', options: ['☀️ День 06:00–18:00', '🌙 Ночь 18:00–06:00'], value: '☀️ День 06:00–18:00' },
-      { k: 'need', label: 'Сколько человек нужно', type: 'number', value: 1 },
+      { k: 'need', label: 'Сколько человек нужно на каждую смену', type: 'number', value: 1 },
       { k: 'note', label: 'Комментарий (необязательно)', ph: 'например: срочный заказ на станок №3' }
     ], o => {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(o.day) || o.day < isoDate(new Date())) { alert('Выберите дату — сегодня или позже'); return false; }
+      const d1 = o.day;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d1) || d1 < isoDate(new Date())) { alert('Выберите дату — сегодня или позже'); return false; }
+      const d2 = /^\d{4}-\d{2}-\d{2}$/.test(o.day2 || '') && o.day2 > d1 ? o.day2 : d1;   // «по» пустое или раньше «с» — один день
+      const days = [];
+      for (let x = new Date(d1 + 'T12:00:00'); isoDate(x) <= d2; x.setDate(x.getDate() + 1)) days.push(isoDate(x));
+      if (days.length > 31) { alert('Не больше 31 дня за один запрос'); return false; }
       const need = Math.round(num(o.need) || 1);
       if (need < 1 || need > 50) { alert('Сколько человек — от 1 до 50'); return false; }
-      const id = 'q' + Date.now().toString(36) + uid();
-      db.reqs[id] = { id, day: o.day, shift: o.shift.startsWith('🌙') ? 'n' : 'd', need, note: (o.note || '').slice(0, 200) || null, status: 'open',
-        created_by: user, created_tg: tgId(), created_at: new Date().toISOString() };
-      save(); rerender(); reqSend(id, false);
+      const g = 'q' + Date.now().toString(36) + uid(), shift = o.shift.startsWith('🌙') ? 'n' : 'd', note = (o.note || '').slice(0, 200) || null, now = new Date().toISOString();
+      const ids = days.map(day => {
+        const id = g + '-' + day.replace(/-/g, '');
+        db.reqs[id] = { id, day, shift, need, note, status: 'open', created_by: user, created_tg: tgId(), created_at: now };
+        return id;
+      });
+      save(); rerender(); reqSend(ids, false);
     }, null, null, 'Отправить всем');
   },
   reqAns(d) {
@@ -3706,7 +3785,16 @@ Object.assign(Actions, {
     if (old && old.answer === d.a) return;
     db.reps[id] = { id, req_id: q.id, staff_id: me.id, answer: d.a, at: new Date().toISOString() };
     save(); rerender();
-    if (Sync.enabled && tg && tg.initData) (async () => { try { await flushNow(); if (!Sync.dirty) await callNotify({ action: 'reply', req_id: q.id }); } catch (e) {} })();
+    // по одному дню — сразу; по пачке — через 20 с после последней отметки, одним сообщением
+    reqReplyLater(reqG(q), reqGroupAll(reqG(q)).length > 1 ? 20000 : 1500);
+  },
+  reqAnsAll(d) {
+    const me = myStaff(); if (!me || (d.a !== 'yes' && d.a !== 'no')) return;
+    const qs = reqOpen().filter(q => reqG(q) === d.g && rosterGet(q.day, me.id) !== q.shift);
+    if (!qs.length) return;
+    const at = new Date().toISOString();
+    qs.forEach(q => { db.reps[q.id + '_' + me.id] = { id: q.id + '_' + me.id, req_id: q.id, staff_id: me.id, answer: d.a, at }; });
+    save(); rerender(); reqReplyLater(d.g, 1500);
   },
   reqPut(d) {
     const q = db.reqs[d.id]; if (!q || !db.staff.some(p => p.id === d.sid)) return;
@@ -3716,13 +3804,14 @@ Object.assign(Actions, {
     if (reqGot(q) >= q.need) q.status = 'closed';
     save(); rerender(); schedNotify(base);
   },
-  reqClose(d) { const q = db.reqs[d.id]; if (q) { q.status = 'closed'; save(); rerender(); } },
+  reqClose(d) { const qs = reqGroupAll(d.g); if (qs.length) { qs.forEach(q => { q.status = 'closed'; }); save(); rerender(); } },
   reqDel(d) {
-    const q = db.reqs[d.id]; if (!q || !confirm('Удалить запрос вместе с ответами?')) return;
-    Object.keys(db.reps).forEach(k => { if (db.reps[k].req_id === q.id) delete db.reps[k]; });
-    delete db.reqs[q.id]; save(); rerender();
+    const qs = reqGroupAll(d.g); if (!qs.length || !confirm(qs.length > 1 ? `Удалить запрос на ${qs.length} дней вместе с ответами?` : 'Удалить запрос вместе с ответами?')) return;
+    const ids = new Set(qs.map(q => q.id));
+    Object.keys(db.reps).forEach(k => { if (ids.has(db.reps[k].req_id)) delete db.reps[k]; });
+    ids.forEach(id => delete db.reqs[id]); save(); rerender();
   },
-  reqRemind(d) { if (db.reqs[d.id]) reqSend(d.id, true); }
+  reqRemind(d) { const ids = reqOpen().filter(q => reqG(q) === d.g).map(q => q.id); if (ids.length) reqSend(ids, true); }
 });
 needPerm('sched', ['reqNew', 'reqPut', 'reqClose', 'reqDel', 'reqRemind']);
 
