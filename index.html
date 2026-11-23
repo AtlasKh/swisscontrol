@@ -3620,9 +3620,21 @@ function propCard() {
    ===================================================================== */
 const SH_TXT = { d: '☀️ день', n: '🌙 ночь' };
 const reqOn = () => !(Sync.enabled && (Sync.noRoster || Sync.noV7));
-const reqOpen = () => { const t = isoDate(new Date()); return Object.values(db.reqs).filter(q => q.status === 'open' && q.day >= t).sort((a, b) => (a.day + a.shift < b.day + b.shift ? -1 : 1)); };
+// день запроса считается закрытым по календарю: на эту смену в графике стоит столько людей,
+// сколько было в момент запроса (-bN в id) плюс сколько нужно; для старых запросов — по ответившим «смогу»
+const reqBase = q => { const m = /-b(\d+)$/.exec(q.id); return m ? +m[1] : null; };
+const reqOnShift = q => db.staff.filter(p => rosterGet(q.day, p.id) === q.shift).length;
+const reqAdded = q => { const b = reqBase(q); return Math.max(reqGot(q), b == null ? 0 : reqOnShift(q) - b); };
+const reqFilled = q => reqAdded(q) >= q.need;
+const reqOpen = () => { const t = isoDate(new Date()); return Object.values(db.reqs).filter(q => q.status === 'open' && q.day >= t && !reqFilled(q)).sort((a, b) => (a.day + a.shift < b.day + b.shift ? -1 : 1)); };
+// наладчик/админ: закрыть в базе дни, которые уже закрыты в графике (чтобы не напоминать о них)
+function reqAutoClose() {
+  if (!can('sched') || !reqOn()) return;
+  const done = Object.values(db.reqs).filter(q => q.status === 'open' && reqFilled(q));
+  if (done.length) { done.forEach(q => { q.status = 'closed'; }); save(); }
+}
 const reqRep = (q, sid) => db.reps[q.id + '_' + sid] || null;
-const reqGot = q => db.staff.filter(p => rosterGet(q.day, p.id) === q.shift && (reqRep(q, p.id) || {}).answer === 'yes').length;
+function reqGot(q) { return db.staff.filter(p => rosterGet(q.day, p.id) === q.shift && (reqRep(q, p.id) || {}).answer === 'yes').length; }
 const reqTodo = () => { const me = reqOn() ? myStaff() : null; return me ? reqOpen().filter(q => !reqRep(q, me.id) && rosterGet(q.day, me.id) !== q.shift) : []; };
 // запрос пачкой дней: у всех дней общий префикс id до «-» (одна рассылка, ответы по каждому дню)
 const reqG = q => String(q.id).split('-')[0];
@@ -3643,7 +3655,7 @@ const dShort = iso => { const x = new Date(iso + 'T12:00:00'); return `${WD[x.ge
 
 function reqItemOne(q, me, admin) {
   const reps = Object.values(db.reps).filter(r => r.req_id === q.id && db.staff.some(p => p.id === r.staff_id));
-  const yes = reps.filter(r => r.answer === 'yes'), no = reps.filter(r => r.answer === 'no'), got = reqGot(q);
+  const yes = reps.filter(r => r.answer === 'yes'), no = reps.filter(r => r.answer === 'no'), got = reqAdded(q);
   let html = `<div class="req-item"><div class="req-head"><b>${dayTxt(q.day)} · ${SH_TXT[q.shift]}</b><span class="req-need">нужно ${q.need}${got ? ' · поставлено ' + got : ''}</span></div>
     ${q.note ? `<div class="muted">💬 ${esc(q.note)}</div>` : ''}`;
   if (me) {
@@ -3683,7 +3695,7 @@ function reqItemMany(g, qs, me, admin) {
       const yes = reps.filter(r => r.answer === 'yes'), no = reps.filter(r => r.answer === 'no').length;
       const silent = db.staff.filter(p => !reqRep(q, p.id) && rosterGet(q.day, p.id) !== q.shift).length;
       silentAll += silent;
-      return `<div class="rq-day"><div class="rq-dh"><b>${dShort(q.day)}${sh.length > 1 ? ' ' + SH_TXT[q.shift] : ''}</b><span class="muted">поставлено ${reqGot(q)}/${q.need} · не смогут ${no} · ещё не ответили ${silent}</span></div>
+      return `<div class="rq-day"><div class="rq-dh"><b>${dShort(q.day)}${sh.length > 1 ? ' ' + SH_TXT[q.shift] : ''}</b><span class="muted">поставлено ${reqAdded(q)}/${q.need} · не смогут ${no} · ещё не ответили ${silent}</span></div>
         <div class="rq-chips">${yes.length ? yes.map(r => rosterGet(q.day, r.staff_id) === q.shift ? `<span class="rq-chip in">✓ ${esc(staffName(r.staff_id))}</span>`
           : `<button class="rq-chip" data-act="reqPut" data-id="${q.id}" data-sid="${r.staff_id}">${esc(staffName(r.staff_id))} <b>+ в график</b></button>`).join('') : '<span class="muted">пока никто не может</span>'}</div></div>`;
     }).join('') + `</div><div class="req-btns"><button class="mini-btn" data-act="reqRemind" data-g="${g}" ${silentAll ? '' : 'disabled'}>🔔 Напомнить</button><button class="mini-btn" data-act="reqClose" data-g="${g}">✓ Закрыть все дни</button><button class="mini-btn danger" data-act="reqDel" data-g="${g}">✕</button></div>`;
@@ -3693,6 +3705,7 @@ function reqItemMany(g, qs, me, admin) {
 
 function reqCard() {
   const admin = can('sched');
+  if (admin && Object.values(db.reqs).some(q => q.status === 'open' && reqFilled(q))) setTimeout(reqAutoClose, 0);
   if (Sync.enabled && Sync.noV7 && !Sync.noRoster)
     return admin || isOwner() ? '<div class="ui-card"><div class="warn-box" style="margin:0">🙋 Чтобы отправлять запросы «нужны люди на смену», выполните один раз <b>setup7.sql</b> в Supabase.</div></div>' : '';
   if (!reqOn()) return '';
@@ -3771,7 +3784,7 @@ Object.assign(Actions, {
       if (need < 1 || need > 50) { alert('Сколько человек — от 1 до 50'); return false; }
       const g = 'q' + Date.now().toString(36) + uid(), shift = o.shift.startsWith('🌙') ? 'n' : 'd', note = (o.note || '').slice(0, 200) || null, now = new Date().toISOString();
       const ids = days.map(day => {
-        const id = g + '-' + day.replace(/-/g, '');
+        const id = g + '-' + day.replace(/-/g, '') + '-b' + db.staff.filter(p => rosterGet(day, p.id) === shift).length;
         db.reqs[id] = { id, day, shift, need, note, status: 'open', created_by: user, created_tg: tgId(), created_at: now };
         return id;
       });
@@ -3801,7 +3814,7 @@ Object.assign(Actions, {
     const base = JSON.parse(JSON.stringify(db.roster));
     rosterSet(q.day, d.sid, q.shift);
     if (propsOn()) propSyncCell(q.day, d.sid);
-    if (reqGot(q) >= q.need) q.status = 'closed';
+    if (reqFilled(q)) q.status = 'closed';
     save(); rerender(); schedNotify(base);
   },
   reqClose(d) { const qs = reqGroupAll(d.g); if (qs.length) { qs.forEach(q => { q.status = 'closed'; }); save(); rerender(); } },
